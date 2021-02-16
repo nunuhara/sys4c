@@ -1,0 +1,5 @@
+(executable
+ (name sys4c))
+
+(ocamllex lexer)
+(menhir (modules parser))
