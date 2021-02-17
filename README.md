@@ -8,9 +8,28 @@ somewhat more mature compiler in alice-tools (written in C).
 Building
 --------
 
-With *OCaml* and the *dune* build system installed, run:
+First install the dependencies:
 
-    dune build src/sys4c.exe
+* OCaml
+* dune
+* menhir
+* make
+* meson
+* libpng
+* libturbojpeg
+* libwebp
+* zlib
+
+Then fetch the git submodules,
+
+    git submodule init
+    git submodule update
+
+(Alternatively, pass `--recurse-submodules` when cloning this repository.)
+
+Then build the compiler with make,
+
+    make
 
 Usage
 -----
