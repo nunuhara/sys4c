@@ -1,6 +1,6 @@
 #!/bin/sh
 
-chdir $(dirname "$0")/src/libsys4
+chdir $(dirname "$0")/libsys4/libsys4
 
 if [ ! -d build ]
 then

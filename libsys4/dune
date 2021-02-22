@@ -1,0 +1,15 @@
+(data_only_dirs libsys4)
+
+(library
+  (name alice)
+  (libraries ctypes.foreign)
+  (c_library_flags (-lz -lpng16 -lwebp -lturbojpeg))
+  (foreign_archives sys4))
+
+(rule
+  (deps (source_tree libsys4))
+  (targets libsys4.a)
+  (action
+    (no-infer
+      (progn
+        (copy libsys4/build/libsys4.a libsys4.a)))))

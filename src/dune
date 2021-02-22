@@ -1,15 +1,6 @@
-(data_only_dirs libsys4)
-
 (executable
  (name sys4c)
- (foreign_archives sys4))
+ (libraries alice))
 
 (ocamllex lexer)
 (menhir (modules parser))
-
-(rule
-  (deps (source_tree libsys4))
-  (targets libsys4.a)
-  (action
-    (no-infer
-      (copy libsys4/build/libsys4.a libsys4.a))))

@@ -38,14 +38,14 @@ Not yet usable. But to run it anyways,
 
     dune exec src/sys4c.exe
 
-Then enter some code followed by the '$' character. Currently this just prints
-the code back (from the parsed AST).
+Then enter some code followed by the '$' character. Currently this just does
+some analysis and then prints the code back (from the parsed AST).
 
 TODO
 ----
 
 - [x] Parser
-- [ ] Symbol table
+- [x] Toplevel declaration analysis
 - [ ] Type analysis
 - [ ] Constant expression evaluation
 - [ ] Variable allocation

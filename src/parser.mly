@@ -77,7 +77,7 @@ let func typespec name params body =
 
 main
   (* XXX: DOLLAR for testing only; to be removed *)
-  : external_declaration DOLLAR { $1 }
+  : external_declaration+ DOLLAR { List.concat $1 }
   ;
 
 primary_expression
@@ -111,7 +111,7 @@ postfix_expression
   | postfix_expression LBRACKET expression RBRACKET { expr (Subscript ($1, $3)) }
   | atomic_type_specifier LPAREN expression RPAREN { expr (Cast ($1, $3)) }
   | postfix_expression arglist { expr (Call ($1, $2)) }
-  | NEW TYPEDEF_NAME arglist { expr (New ($2, $3)) }
+  | NEW IDENTIFIER arglist { expr (New (Unresolved ($2), $3)) }
   | postfix_expression DOT IDENTIFIER { expr (Member ($1, $3)) }
   | postfix_expression INC { expr (Unary (PostInc, $1)) }
   | postfix_expression DEC { expr (Unary (PostDec, $1)) }
@@ -255,6 +255,7 @@ type_specifier
   | ARRAY LT QUESTION GT { Array (qtype None Void, 1) }
   | WRAP LT type_specifier GT { Wrap (qtype None $3) }
   | WRAP LT QUESTION GT { Wrap (qtype None Void) }
+  | IDENTIFIER { Unresolved ($1) }
 
 statement
   : labeled_statement { stmt $1 }
@@ -362,7 +363,7 @@ external_declaration
   | FUNCTYPE declaration_specifiers IDENTIFIER functype_parameter_list SEMICOLON
     { [FuncType (func $2 $3 $4 [])] }
   | STRUCT IDENTIFIER LBRACE struct_declaration+ RBRACE SEMICOLON
-    { [Struct ({ name=$2; decls=(List.concat $4) })] }
+    { [StructDef ({ name=$2; decls=(List.concat $4) })] }
   | ENUM enumerator_list SEMICOLON
     { [Enum ({ name=None; values=$2 })] }
   | ENUM IDENTIFIER enumerator_list SEMICOLON
