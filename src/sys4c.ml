@@ -20,7 +20,7 @@ open Jaf
  * AST pass to resolve struct/enum/function types.
  *)
 class type_resolve_visitor ain = object (self)
-  inherit ivisitor
+  inherit ivisitor as super
 
   method resolve_type name =
     match Alice.Ain.get_struct ain name with
@@ -33,19 +33,19 @@ class type_resolve_visitor ain = object (self)
         ts.data <- self#resolve_type t
     | _ -> ()
 
-  method! visit_expr_pre expr =
+  method! visit_expression expr =
     begin match expr.node with
     | New (Unresolved (t), e) ->
         expr.node <- New (self#resolve_type t, e)
     | _ -> ()
     end;
-    true
+    super#visit_expression expr
 
-  method! visit_local_pre decl =
+  method! visit_variable decl =
     self#resolve_typespec decl.type_spec;
-    true
+    super#visit_variable decl
 
-  method! visit_decl_pre decl =
+  method! visit_declaration decl =
     let resolve_function f =
       self#resolve_typespec f.return;
       List.iter (fun v -> self#resolve_typespec v.type_spec) f.params
@@ -68,18 +68,19 @@ class type_resolve_visitor ain = object (self)
     | Enum (_) ->
         failwith "enum types not yet supported"
     end;
-    true
+    super#visit_declaration decl
 end
 
 (*
  * AST pass over top-level declarations to define types and register
  * functions/globals in the .ain file.
  *)
+
 class type_define_visitor ain = object
   inherit ivisitor
 
-  method! visit_decl_pre decl =
-    begin match decl with
+  method! visit_declaration decl =
+    match decl with
     | Global (g) ->
         if Option.is_some (Alice.Ain.get_global ain g.name) then
           failwith "duplicate global variable definition";
@@ -99,8 +100,7 @@ class type_define_visitor ain = object
         ignore (Alice.Ain.add_struct ain s.name)
     | Enum (_) ->
         failwith "enum types not yet supported"
-    end;
-    false
+
 end
 
 let _ =
@@ -110,8 +110,8 @@ let _ =
     let lexbuf = Lexing.from_channel stdin in
     while true do
       let result = Parser.main Lexer.token lexbuf in
-      accept_toplevel (new type_define_visitor p) result;
-      accept_toplevel (new type_resolve_visitor p) result;
+      (new type_define_visitor p)#visit_toplevel result;
+      (new type_resolve_visitor p)#visit_toplevel result;
       print_string "-> ";
       List.iter (fun d -> print_string (extdecl_to_string d)) result;
       print_newline();

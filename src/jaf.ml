@@ -167,105 +167,115 @@ type external_declaration =
   | StructDef of structdecl
   | Enum of enumdecl
 
-class ivisitor = object
-  method visit_expr_pre (_ : expression) = true
-  method visit_stmt_pre (_ : statement) = true
-  method visit_local_pre (_ : declaration) = true
-  method visit_decl_pre (_ : external_declaration) = true
-  method visit_expr_post (_ : expression) = ()
-  method visit_stmt_post (_ : statement) = ()
-  method visit_local_post (_ : declaration) = ()
-  method visit_decl_post (_ : external_declaration) = ()
-end
+class ivisitor = object (self)
 
-let rec accept_expr v (e : expression) =
-  let accept = accept_expr v in
-  if v#visit_expr_pre e then begin
-    begin match e.node with
+  method visit_expression (e : expression) =
+    match e.node with
     | ConstInt (_) -> ()
     | ConstFloat (_) -> ()
     | ConstChar (_) -> ()
     | ConstString (_) -> ()
     | Ident (_) -> ()
-    | Unary (_, e2) -> accept e2
-    | Binary (_, lhs, rhs) -> accept lhs; accept rhs
-    | Assign (_, lhs, rhs) -> accept lhs; accept rhs
-    | Seq (a, b) -> accept a; accept b
-    | Ternary (a, b, c) -> accept a; accept b; accept c
-    | Cast (_, a) -> accept a
-    | Subscript (a, i) -> accept a; accept i
-    | Member (a, _) -> accept a
-    | Call (f, a) -> accept f; List.iter accept a
-    | New (_, a) -> List.iter accept a
+    | Unary (_, e) ->
+        self#visit_expression e
+    | Binary (_, lhs, rhs) ->
+        self#visit_expression lhs;
+        self#visit_expression rhs
+    | Assign (_, lhs, rhs) ->
+        self#visit_expression lhs;
+        self#visit_expression rhs
+    | Seq (a, b) ->
+        self#visit_expression a;
+        self#visit_expression b
+    | Ternary (a, b, c) ->
+        self#visit_expression a;
+        self#visit_expression b;
+        self#visit_expression c
+    | Cast (_, obj) ->
+        self#visit_expression obj
+    | Subscript (arr, i) ->
+        self#visit_expression arr;
+        self#visit_expression i
+    | Member (obj, _) ->
+        self#visit_expression obj
+    | Call (f, args) ->
+        self#visit_expression f;
+        List.iter self#visit_expression args
+    | New (_, args) ->
+        List.iter self#visit_expression args
     | This -> ()
-    end;
-    v#visit_expr_post e
-  end
 
-let rec accept_stmt v s =
-  let e_accept = accept_expr v in
-  let s_accept = accept_stmt v in
-  let i_accept = accept_block_item v in
-  if v#visit_stmt_pre s then begin
-    begin match s.node with
+  method visit_statement (s : statement) =
+    match s.node with
     | EmptyStatement -> ()
-    | Expression (e) -> e_accept e
-    | Compound (items) -> List.iter i_accept items
-    | Labeled (_, a) -> s_accept a
-    | If (test, cons, alt) -> e_accept test; s_accept cons; s_accept alt
-    | While (test, body) -> e_accept test; s_accept body
-    | DoWhile (test, body) -> s_accept body; e_accept test
+    | Expression (e) ->
+        self#visit_expression e
+    | Compound (items) ->
+        List.iter self#visit_block_item items
+    | Labeled (_, a) ->
+        self#visit_statement a
+    | If (test, cons, alt) ->
+        self#visit_expression test;
+        self#visit_statement cons;
+        self#visit_statement alt
+    | While (test, body) ->
+        self#visit_expression test;
+        self#visit_statement body
+    | DoWhile (test, body) ->
+        self#visit_statement body;
+        self#visit_expression test
     | For (init, test, inc, body) ->
-        i_accept init;
-        s_accept test;
-        Option.iter e_accept inc;
-        s_accept body
+        self#visit_block_item init;
+        self#visit_statement test;
+        Option.iter self#visit_expression inc;
+        self#visit_statement body
     | Goto (_) -> ()
     | Continue -> ()
     | Break -> ()
-    | Return (e) -> Option.iter e_accept e
+    | Return (e) ->
+        Option.iter self#visit_expression e
     | MessageCall (_, _) -> ()
-    | RefAssign (a, b) -> e_accept a; e_accept b
-    end;
-    v#visit_stmt_post s
-  end
-and accept_local v d =
-  if v#visit_local_pre d then begin
-    List.iter (accept_expr v) d.array_dim;
-    Option.iter (accept_expr v) d.initval;
-    v#visit_local_post d
-  end
-and accept_block_item v = function
-  | Statement (s) -> accept_stmt v s
-  | Declarations (ds) -> List.iter (accept_local v) ds
+    | RefAssign (a, b) ->
+        self#visit_expression a;
+        self#visit_expression b
 
-let accept_decl v d =
-  let f_accept f = List.iter (accept_block_item v) f.body in
-  let d_accept decl =
-    List.iter (accept_expr v) decl.array_dim;
-    Option.iter (accept_expr v) decl.initval
-  in
-  if v#visit_decl_pre d then begin
-    begin match d with
-    | Global (g) -> d_accept g
-    | Function (f) -> f_accept f
-    | FuncType (f) -> f_accept f
+  method visit_variable v =
+    List.iter self#visit_expression v.array_dim;
+    Option.iter self#visit_expression v.initval
+
+  method visit_block_item item =
+    match item with
+    | Statement (s) -> self#visit_statement s
+    | Declarations (ds) -> List.iter self#visit_variable ds
+
+  method visit_declaration d =
+    let visit_vardecl d =
+      List.iter self#visit_expression d.array_dim;
+      Option.iter self#visit_expression d.initval
+    in
+    let visit_fundecl d =
+      List.iter self#visit_block_item d.body
+    in
+    match d with
+    | Global (g) -> visit_vardecl g
+    | Function (f) -> visit_fundecl f
+    | FuncType (f) -> visit_fundecl f
     | StructDef (s) ->
-        let structdecl_accept = function
-          | MemberDecl (decl) -> d_accept decl
-          | Constructor (f) -> f_accept f
-          | Destructor (f) -> f_accept f
-          | Method (f) -> f_accept f
+        let visit_structdecl = function
+          | MemberDecl (d) -> visit_vardecl d
+          | Constructor (f) -> visit_fundecl f
+          | Destructor (f) -> visit_fundecl f
+          | Method (f) -> visit_fundecl f
         in
-        List.iter structdecl_accept s.decls
+        List.iter visit_structdecl s.decls
     | Enum (enum) ->
-        let v_accept (_, expr) = Option.iter (accept_expr v) expr in
-        List.iter v_accept enum.values
-    end;
-    v#visit_decl_post d
-  end
+        let visit_enumval (_, expr) = Option.iter self#visit_expression expr in
+        List.iter visit_enumval enum.values
 
-let accept_toplevel v decls = List.iter (accept_decl v) decls
+  method visit_toplevel decls =
+    List.iter self#visit_declaration decls
+
+end
 
 let unary_op_to_string op =
   match op with
