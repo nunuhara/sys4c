@@ -14,7 +14,9 @@
  * along with this program; if not, see <http://gnu.org/licenses/>.
  *)
 
+open Printf
 open Jaf
+open TypeAnalysis
 
 (*
  * AST pass to resolve struct/enum/function types.
@@ -75,7 +77,6 @@ end
  * AST pass over top-level declarations to define types and register
  * functions/globals in the .ain file.
  *)
-
 class type_define_visitor ain = object
   inherit ivisitor
 
@@ -100,7 +101,6 @@ class type_define_visitor ain = object
         ignore (Alice.Ain.add_struct ain s.name)
     | Enum (_) ->
         failwith "enum types not yet supported"
-
 end
 
 let _ =
@@ -112,11 +112,29 @@ let _ =
       let result = Parser.main Lexer.token lexbuf in
       (new type_define_visitor p)#visit_toplevel result;
       (new type_resolve_visitor p)#visit_toplevel result;
+      (new type_analyze_visitor p)#visit_toplevel result;
       print_string "-> ";
-      List.iter (fun d -> print_string (extdecl_to_string d)) result;
+      List.iter (fun d -> print_string (decl_to_string d)) result;
       print_newline();
       flush stdout
     done
-  with Lexer.Eof ->
-    Alice.Ain.free p;
-    exit 0
+  with
+  | Type_error (expected, actual, parent) ->
+      let s_expected = data_type_to_string expected in
+      let s_actual =
+        match actual with
+        | None -> "void"
+        | Some expr -> data_type_to_string expr.valuetype.data
+      in
+      printf "Type error: expected %s; got %s\n" s_expected s_actual;
+      Option.iter (fun e -> printf "\tat: %s\n" (expr_to_string e)) actual;
+      printf "\tin: %s\n" (ast_to_string parent);
+      Alice.Ain.free p;
+      exit 1
+  | Undefined_variable (name, _) ->
+      printf "Undefined variable: %s\n" name;
+      Alice.Ain.free p;
+      exit 1
+  | Lexer.Eof ->
+      Alice.Ain.free p;
+      exit 0

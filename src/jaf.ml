@@ -84,7 +84,6 @@ and data_type =
   | HLLParam
   | HLLFunc
   | Delegate
-  (*| Typedef*)
   (*| Functype*)
 
 type expression = {
@@ -111,7 +110,7 @@ and ast_expression =
 
 type block_item =
   | Statement    of statement
-  | Declarations of declaration list
+  | Declarations of variable list
 and statement = {
   node : ast_statement
 }
@@ -123,14 +122,14 @@ and ast_statement =
   | If             of expression      * statement * statement
   | While          of expression      * statement
   | DoWhile        of expression      * statement
-  | For            of block_item      * statement * expression option * statement
+  | For            of block_item      * expression * expression option * statement
   | Goto           of string
   | Continue
   | Break
   | Return         of expression option
   | MessageCall    of string          * string
   | RefAssign      of expression      * expression
-and declaration = {
+and variable = {
   name      : string;
   array_dim : expression list;
   type_spec : type_specifier;
@@ -140,12 +139,12 @@ and declaration = {
 type fundecl = {
   name   : string;
   return : type_specifier;
-  params : declaration list;
+  params : variable list;
   body   : block_item list
 }
 
 type struct_declaration =
-  | MemberDecl of declaration
+  | MemberDecl of variable
   | Constructor of fundecl
   | Destructor of fundecl
   | Method of fundecl
@@ -160,12 +159,18 @@ type enumdecl = {
   values : (string * expression option) list
 }
 
-type external_declaration =
+type declaration =
   | Function of fundecl
-  | Global of declaration
+  | Global of variable
   | FuncType of fundecl
   | StructDef of structdecl
   | Enum of enumdecl
+
+type ast_node =
+  | ASTExpression of expression
+  | ASTStatement of statement
+  | ASTVariable of variable
+  | ASTDeclaration of declaration
 
 class ivisitor = object (self)
 
@@ -226,7 +231,7 @@ class ivisitor = object (self)
         self#visit_expression test
     | For (init, test, inc, body) ->
         self#visit_block_item init;
-        self#visit_statement test;
+        self#visit_expression test;
         Option.iter self#visit_expression inc;
         self#visit_statement body
     | Goto (_) -> ()
@@ -420,7 +425,7 @@ let rec stmt_to_string (stmt : statement) =
       sprintf "do %s while (%s);" (stmt_to_string body) (expr_to_string test)
   | For (init, test, inc, body) ->
       let s_init = block_item_to_string init in
-      let s_test = stmt_to_string test in
+      let s_test = expr_to_string test in
       let s_body = stmt_to_string body in
       let s_inc =
         match inc with
@@ -442,7 +447,7 @@ let rec stmt_to_string (stmt : statement) =
       sprintf "'%s' %s;" msg f
   | RefAssign (dst, src) ->
       sprintf "%s <- %s;" (expr_to_string dst) (expr_to_string src)
-and decl_to_string' d =
+and var_to_string' d =
   let t = type_spec_to_string d.type_spec in
   let dim_iter l r = l ^ (sprintf "[%s]" (expr_to_string r)) in
   let dims = List.fold_left dim_iter "" d.array_dim in
@@ -452,29 +457,29 @@ and decl_to_string' d =
     | Some e -> sprintf " = %s" (expr_to_string e)
   in
   sprintf "%s %s%s%s" t dims d.name init
-and decl_to_string d =
-  (decl_to_string' d) ^ ";"
+and var_to_string d =
+  (var_to_string' d) ^ ";"
 and block_item_to_string item =
   match item with
   | Statement (s) -> stmt_to_string s
-  | Declarations (ds) -> List.fold_left (^) "" (List.map decl_to_string ds)
+  | Declarations (ds) -> List.fold_left (^) "" (List.map var_to_string ds)
 
-let extdecl_to_string d =
+let decl_to_string d =
   let params_to_string = function
     | [] -> "()"
     | p::ps ->
         let rec loop result = function
           | [] -> result
-          | p::ps -> loop (sprintf "%s, %s" result (decl_to_string' p)) ps
+          | p::ps -> loop (sprintf "%s, %s" result (var_to_string' p)) ps
         in
-        sprintf "(%s)" (loop (decl_to_string' p) ps)
+        sprintf "(%s)" (loop (var_to_string' p) ps)
   in
   let block_to_string block =
     List.fold_left (^) "" (List.map block_item_to_string block)
   in
   match d with
   | Global (d) ->
-      decl_to_string d
+      var_to_string d
   | Function (d) ->
       let return = type_spec_to_string d.return in
       let params = params_to_string d.params in
@@ -487,7 +492,7 @@ let extdecl_to_string d =
   | StructDef (d) ->
       let sdecl_to_string = function
         | MemberDecl (d) ->
-            decl_to_string d
+            var_to_string d
         | Constructor (d) ->
             let params = params_to_string d.params in
             let body = block_to_string d.body in
@@ -517,3 +522,10 @@ let extdecl_to_string d =
         | Some s -> s ^ " "
       in
       sprintf "enum %s{ %s };" name body
+
+let ast_to_string = function
+  | ASTExpression (e) -> expr_to_string e
+  | ASTStatement (s) -> stmt_to_string s
+  | ASTVariable (v) -> var_to_string v
+  | ASTDeclaration (d) -> decl_to_string d
+
