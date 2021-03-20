@@ -22,7 +22,7 @@ let qtype qualifier data =
   { data=data; qualifier=qualifier }
 
 let expr ast =
-  { valuetype=(qtype None Untyped); node=ast }
+  { valuetype=None; node=ast }
 
 let stmt ast =
   { node=ast }

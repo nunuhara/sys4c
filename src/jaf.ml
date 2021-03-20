@@ -87,7 +87,7 @@ and data_type =
   (*| Functype*)
 
 type expression = {
-  mutable valuetype : type_specifier;
+  mutable valuetype : Alice.Ain.Type.t option;
   mutable node : ast_expression
 }
 and ast_expression =
@@ -529,3 +529,26 @@ let ast_to_string = function
   | ASTVariable (v) -> var_to_string v
   | ASTDeclaration (d) -> decl_to_string d
 
+let jaf_to_ain_data_type data =
+  match data with
+  | Untyped -> failwith "tried to convert Untyped to ain data type"
+  | Unresolved (_) -> failwith "tried to covert Unresolved to ain data type"
+  | Void -> Alice.Ain.Type.Void
+  | Int -> Alice.Ain.Type.Int
+  | Bool -> Alice.Ain.Type.Bool
+  | Float -> Alice.Ain.Type.Float
+  | String -> Alice.Ain.Type.String
+  | Struct (_, i) -> (Alice.Ain.Type.Struct i)
+  | Array (_, _) -> failwith "arrays not yet supported"
+  | Wrap (_) -> failwith "wrap<...> not yet supported"
+  | HLLParam -> Alice.Ain.Type.HLLParam
+  | HLLFunc -> Alice.Ain.Type.HLLFunc
+  | Delegate -> failwith "delegates not yet supported"
+
+let jaf_to_ain_type spec =
+  let is_ref =
+    match spec.qualifier with
+    | Some Ref -> true
+    | _ -> false
+  in
+  Alice.Ain.Type.make ~is_ref (jaf_to_ain_data_type spec.data)

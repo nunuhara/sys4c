@@ -16,86 +16,136 @@
 
 open Jaf
 
-exception Type_error of data_type * expression option * ast_node
+exception Type_error of Alice.Ain.Type.data * expression option * ast_node
 exception Undefined_variable of string * ast_node
 
 let rec type_equal expected actual =
   match expected with
-  | Untyped -> failwith "type checker expected untyped value"
-  | Unresolved (_) -> failwith "type checker expected unresolved type"
-  | Void -> failwith "type checker expected void type"
-  | Int ->
+  | Alice.Ain.Type.Void -> failwith "type checker expected void type"
+  | Alice.Ain.Type.Int ->
       begin match actual with
-      | Int | Bool -> true
+      | Alice.Ain.Type.Int | Alice.Ain.Type.Bool | Alice.Ain.Type.LongInt -> true
       | _ -> false
       end
-  | Bool -> 
+  | Alice.Ain.Type.Bool ->
       begin match actual with
-      | Int | Bool -> true
+      | Alice.Ain.Type.Int | Alice.Ain.Type.Bool | Alice.Ain.Type.LongInt -> true
       | _ -> false
       end
-  | Float ->
+  | Alice.Ain.Type.LongInt ->
       begin match actual with
-      | Float -> true
+      | Alice.Ain.Type.Int | Alice.Ain.Type.Bool | Alice.Ain.Type.LongInt -> true
       | _ -> false
       end
-  | String ->
+  | Alice.Ain.Type.Float ->
       begin match actual with
-      | String -> true
+      | Alice.Ain.Type.Float -> true
       | _ -> false
       end
-  | Struct (_, i) ->
+  | Alice.Ain.Type.String ->
       begin match actual with
-      | Struct (_, i_a) -> i == i_a
+      | Alice.Ain.Type.String -> true
       | _ -> false
       end
-  | Array (t, rank) ->
+  | Alice.Ain.Type.Struct (i) ->
       begin match actual with
-      | Array (t_a, rank_a) -> (type_equal t.data t_a.data) && (rank == rank_a)
+      | Alice.Ain.Type.Struct (i_a) -> i == i_a
       | _ -> false
       end
-  | Wrap (t) ->
+  | Alice.Ain.Type.IMainSystem ->
       begin match actual with
-      | Wrap (t_a) -> type_equal t.data t_a.data
+      | Alice.Ain.Type.IMainSystem -> true
       | _ -> false
       end
-  | HLLParam ->
+  | Alice.Ain.Type.FuncType (i) ->
       begin match actual with
-      | HLLParam -> true
+      | Alice.Ain.Type.FuncType (i_a) -> i == i_a
       | _ -> false
       end
-  | HLLFunc ->
+  | Alice.Ain.Type.Delegate (i) ->
       begin match actual with
-      | HLLFunc -> true
+      | Alice.Ain.Type.Delegate (i_a) -> i == i_a
       | _ -> false
       end
-  | Delegate ->
+  | Alice.Ain.Type.HLLParam ->
       begin match actual with
-      | Delegate -> true
+      | Alice.Ain.Type.HLLParam -> true
+      | _ -> false
+      end
+  | Alice.Ain.Type.Array (t) ->
+      begin match actual with
+      | Alice.Ain.Type.Array (t_a) -> type_equal t.data t_a.data
+      | _ -> false
+      end
+  | Alice.Ain.Type.Wrap (t) ->
+      begin match actual with
+      | Alice.Ain.Type.Wrap (t_a) -> type_equal t.data t_a.data
+      | _ -> false
+      end
+  | Alice.Ain.Type.Option (t) ->
+      begin match actual with
+      | Alice.Ain.Type.Option (t_a) -> type_equal t.data t_a.data
+      | _ -> false
+      end
+  | Alice.Ain.Type.Unknown87 (t) ->
+      begin match actual with
+      | Alice.Ain.Type.Unknown87 (t_a) -> type_equal t.data t_a.data
+      | _ -> false
+      end
+  | Alice.Ain.Type.IFace ->
+      begin match actual with
+      | Alice.Ain.Type.IFace -> true
+      | _ -> false
+      end
+  | Alice.Ain.Type.Enum2 (i) ->
+      begin match actual with
+      | Alice.Ain.Type.Enum2 (i_a) -> i == i_a
+      | _ -> false
+      end
+  | Alice.Ain.Type.Enum (i) ->
+      begin match actual with
+      | Alice.Ain.Type.Enum (i_a) -> i == i_a
+      | _ -> false
+      end
+  | Alice.Ain.Type.HLLFunc ->
+      begin match actual with
+      | Alice.Ain.Type.HLLFunc -> true
+      | _ -> false
+      end
+  | Alice.Ain.Type.IFaceWrap ->
+      begin match actual with
+      | Alice.Ain.Type.IFaceWrap -> true
       | _ -> false
       end
 
 let type_castable dst src =
   match dst with
-  | Untyped -> failwith "type checker cast to untyped value"
-  | Unresolved (_) -> failwith "type checker cast to unresolved type"
   (* FIXME: cast to void should be allowed *)
   | Void -> failwith "type checker cast to void type"
   | Int | Bool | Float ->
       begin match src with
-      | Int | Bool | Float -> true
+      | Alice.Ain.Type.Int | Alice.Ain.Type.Bool | Alice.Ain.Type.Float -> true
       | _ -> false
       end
   | _ -> false
 
 let type_check parent expected actual =
-  if not (type_equal expected actual.valuetype.data) then
-    raise (Type_error (expected, Some actual, parent))
+  match actual.valuetype with
+  | None ->
+      failwith "tried to type check untyped expression"
+  | Some a_t ->
+      if not (type_equal expected a_t.data) then
+        raise (Type_error (expected, Some actual, parent))
 
 let type_check_numeric parent actual =
-  match actual.valuetype.data with
-  | Int | Bool | Float -> ()
-  | _ -> raise (Type_error (Int, Some actual, parent))
+  match actual.valuetype with
+  | None ->
+      failwith "tried to type check untyped expression"
+  | Some a_t ->
+      begin match a_t.data with
+      | Alice.Ain.Type.Int | Alice.Ain.Type.Bool | Alice.Ain.Type.Float -> ()
+      | _ -> raise (Type_error (Int, Some actual, parent))
+      end
 
 class type_analyze_visitor ain = object (self)
   inherit ivisitor as super
@@ -141,95 +191,102 @@ class type_analyze_visitor ain = object (self)
 
   method! visit_expression expr =
     super#visit_expression expr;
+    let unwrap valuetype =
+      match valuetype with
+      | None -> failwith "type-checker: valuetype is None"
+      | Some vt -> vt
+    in
     let check = type_check (ASTExpression (expr)) in
     let check_numeric = type_check_numeric (ASTExpression (expr)) in
+    let check_expr a b = check (unwrap a.valuetype).data b in
+    let set_valuetype spec =
+      expr.valuetype <- Some (jaf_to_ain_type spec)
+    in
     match expr.node with
     | ConstInt (_) ->
-        expr.valuetype <- { data=Int; qualifier=None }
+        expr.valuetype <- Some (Alice.Ain.Type.make Alice.Ain.Type.Int)
     | ConstFloat (_) ->
-        expr.valuetype <- { data=Float; qualifier=None }
+        expr.valuetype <- Some (Alice.Ain.Type.make Alice.Ain.Type.Float)
     | ConstChar (_) -> ()
     | ConstString (_) ->
-        expr.valuetype <- { data=String; qualifier=None }
+        expr.valuetype <- Some (Alice.Ain.Type.make Alice.Ain.Type.String)
     | Ident (name) ->
         begin match env#get name with
         | None ->
             begin match Alice.Ain.get_global ain name with
             | None -> raise (Undefined_variable (name, ASTExpression (expr)))
-            | Some _ -> failwith "global variables not yet supported"
+            | Some _ ->
+                failwith "global variables not yet supported"
             end
         | Some v ->
-            expr.valuetype <- { data=v.type_spec.data; qualifier=None }
+            set_valuetype { data=v.type_spec.data; qualifier=None }
         end
     | Unary (op, e) ->
         begin match op with
         | UPlus | UMinus | PreInc | PreDec | PostInc | PostDec ->
             check_numeric e
         | LogNot | BitNot ->
-            check Int e
+            check Alice.Ain.Type.Int e
         | AddrOf ->
             failwith "function types not yet supported"
         end;
-        expr.valuetype <- { data=e.valuetype.data; qualifier=None }
+        expr.valuetype <- Some (unwrap e.valuetype)
     | Binary (op, a, b) ->
         begin match op with
         | Plus | Minus | Times | Divide | LT | GT | LTE | GTE ->
             check_numeric a;
             check_numeric b;
             (* TODO: allow coercion *)
-            check a.valuetype.data b
+            check_expr a b
         | Modulo | LogOr | LogAnd | BitOr | BitXor | BitAnd | LShift | RShift ->
-            check Int a;
-            check Int b
+            check Alice.Ain.Type.Int a;
+            check Alice.Ain.Type.Int b
         | Equal | NEqual ->
-            begin match a.valuetype.data with
-            | String ->
-                check String b
+            begin match (unwrap a.valuetype).data with
+            | Alice.Ain.Type.String ->
+                check Alice.Ain.Type.String b
             | _ ->
                 check_numeric a;
                 check_numeric b;
                 (* TODO: allow coercion *)
-                check a.valuetype.data b
+                check_expr a b
             end
         end;
-        expr.valuetype <- { data=a.valuetype.data; qualifier=None }
+        expr.valuetype <- a.valuetype
     | Assign (op, lhs, rhs) ->
         begin match op with
         | EqAssign ->
-            check lhs.valuetype.data rhs
+            check_expr lhs rhs
         | PlusAssign | MinusAssign | TimesAssign | DivideAssign ->
             check_numeric lhs;
             check_numeric rhs;
             (* TODO: allow coercion *)
-            check lhs.valuetype.data rhs
+            check_expr lhs rhs
         | ModuloAssign | OrAssign | XorAssign | AndAssign
         | LShiftAssign | RShiftAssign ->
-            check Int lhs;
-            check Int rhs
+            check Alice.Ain.Type.Int lhs;
+            check Alice.Ain.Type.Int rhs
         end;
-        expr.valuetype <- { data=lhs.valuetype.data; qualifier=None }
+        expr.valuetype <- lhs.valuetype
     | Seq (_, e) ->
-        expr.valuetype <- { data=e.valuetype.data; qualifier=None }
+        expr.valuetype <- e.valuetype
     | Ternary (test, con, alt) ->
-        check Int test;
-        check con.valuetype.data alt;
-        expr.valuetype <- { data=con.valuetype.data; qualifier=None }
+        check Alice.Ain.Type.Int test;
+        check_expr con alt;
+        expr.valuetype <- con.valuetype
     | Cast (t, e) ->
-        if not (type_castable t e.valuetype.data) then
-          raise (Type_error (t, Some e, ASTExpression (expr)));
-        expr.valuetype <- { data=t; qualifier=None }
+        if not (type_castable t (unwrap e.valuetype).data) then
+          raise (Type_error ((jaf_to_ain_data_type t), Some e, ASTExpression (expr)));
+        set_valuetype { data=t; qualifier=None }
     | Subscript (obj, i) ->
         check Int i;
-        begin match obj.valuetype.data with
-        | Array (t, rank) ->
-            if rank == 1 then
-              expr.valuetype <- { data=t.data; qualifier=None }
-            else
-              expr.valuetype <- { data=Array(t, rank - 1); qualifier=None }
+        begin match (unwrap obj.valuetype).data with
+        | Array (t) ->
+            expr.valuetype <- Some t
         | _ ->
             let array_type = { data=Unresolved ("?"); qualifier=None } in
             let expected = Array (array_type, 1) in
-            raise (Type_error (expected, Some obj, ASTExpression (expr)))
+            raise (Type_error ((jaf_to_ain_data_type expected), Some obj, ASTExpression (expr)))
         end
     | Member (_, _) ->
         failwith "struct members not yet supported"
@@ -268,7 +325,7 @@ class type_analyze_visitor ain = object (self)
     | Return (Some e) ->
         begin match current_function with
         | None -> failwith "return statement outside of function"
-        | Some f -> type_check (ASTStatement (stmt)) f.return.data e
+        | Some f -> type_check (ASTStatement (stmt)) (jaf_to_ain_data_type f.return.data) e
         end
     | Return (None) ->
         begin match current_function with
@@ -276,7 +333,7 @@ class type_analyze_visitor ain = object (self)
         | Some f ->
             begin match f.return.data with
             | Void -> ()
-            | _ -> raise (Type_error (f.return.data, None, ASTStatement (stmt)))
+            | _ -> raise (Type_error ((jaf_to_ain_data_type f.return.data), None, ASTStatement (stmt)))
             end
         end
     | MessageCall (_, _) ->
@@ -311,7 +368,7 @@ class type_analyze_visitor ain = object (self)
   method check_variable decl =
     List.iter (fun e -> type_check (ASTVariable (decl)) Int e) decl.array_dim;
     match decl.initval with
-    | Some expr -> type_check (ASTVariable (decl)) decl.type_spec.data expr
+    | Some expr -> type_check (ASTVariable (decl)) (jaf_to_ain_data_type decl.type_spec.data) expr
     | None -> ()
 
 end

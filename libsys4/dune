@@ -4,6 +4,7 @@
   (name alice)
   (libraries ctypes.foreign)
   (c_library_flags (-lz -lpng16 -lwebp -lturbojpeg))
+  (foreign_stubs (language c) (names ain))
   (foreign_archives sys4))
 
 (rule

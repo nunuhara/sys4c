@@ -120,11 +120,14 @@ let _ =
     done
   with
   | Type_error (expected, actual, parent) ->
-      let s_expected = data_type_to_string expected in
+      let s_expected = Alice.Ain.Type.data_to_string expected in
       let s_actual =
         match actual with
         | None -> "void"
-        | Some expr -> data_type_to_string expr.valuetype.data
+        | Some expr ->
+            match expr.valuetype with
+            | None -> "untyped"
+            | Some t -> Alice.Ain.Type.to_string t
       in
       printf "Type error: expected %s; got %s\n" s_expected s_actual;
       Option.iter (fun e -> printf "\tat: %s\n" (expr_to_string e)) actual;
