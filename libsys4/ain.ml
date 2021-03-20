@@ -71,7 +71,7 @@ module Type = struct
 
   (* Convert a t to a t_c.data value *)
   (* FIXME: need to take version into account... *)
-  let to_int o =
+  let rec to_c_data o =
     if o.is_ref then
       match o.data with
       | Void -> failwith "tried to create ref void"
@@ -160,9 +160,26 @@ module Type = struct
         | Enum (_) -> 92
         | HLLFunc -> 95
         | IFaceWrap -> 100
+  and to_c_struc o =
+    match o.data with
+    | Struct (no) | FuncType (no) | Delegate (no) | Enum2 (no) | Enum (no) -> no
+    | _ -> 0
+  and to_c_rank o =
+    match o.data with
+    (* FIXME: need to handle v11+ differently *)
+    | Array (t) -> 1 + (to_c_rank t)
+    | Wrap (_) | Option (_) | Unknown87 (_) -> 1
+    | _ -> 0
+  and to_c_array_type _ =
+    (* TODO: v11+ *)
+    from_voidp t_c null
+  and write_ptr src dst =
+    setf !@dst data (to_c_data src);
+    setf !@dst struc (Signed.Int32.of_int (to_c_struc src));
+    setf !@dst rank (Signed.Int32.of_int (to_c_rank src));
+    setf !@dst array_type (to_c_array_type src)
 
   let make ?(is_ref=false) data =
-    (* TODO: sanity check rank here? *)
     { data; is_ref }
 
   let rec of_ptr p =
@@ -224,6 +241,7 @@ module Type = struct
     | 95 -> make HLLFunc
     | 100 -> make IFaceWrap
     | _ -> failwith "Invalid or unknown data type in ain file"
+
 end
 
 module Variable = struct
@@ -498,7 +516,7 @@ let get_functype' = foreign "ain_get_functype" (ain @-> string @-> returning int
 let get_string_no' = foreign "ain_get_string_no" (ain @-> string @-> returning int)
 let add_function = foreign "ain_add_function" (ain @-> string @-> returning int)
 let dup_function = foreign "ain_dup_function" (ain @-> int @-> returning int)
-let add_global = foreign "ain_add_global" (ain @-> string @-> returning int)
+let add_global' = foreign "ain_add_global" (ain @-> string @-> returning int)
 let add_initval = foreign "ain_add_initval" (ain @-> int @-> returning int)
 let add_struct = foreign "ain_add_struct" (ain @-> string @-> returning int)
 let add_library = foreign "ain_add_library" (ain @-> string @-> returning int)
@@ -529,3 +547,8 @@ let get_global p name =
       | Some obj -> Some (Variable.of_ptr obj i)
       end
 
+let add_global ain_file name t =
+  let no = add_global' ain_file name in
+  match (ain_global ain_file no) with
+  | None -> failwith "failed to add global to .ain file"
+  | Some g -> Type.write_ptr t (addr (getf (!@ g) Variable.value_type))

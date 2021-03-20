@@ -215,8 +215,8 @@ class type_analyze_visitor ain = object (self)
         | None ->
             begin match Alice.Ain.get_global ain name with
             | None -> raise (Undefined_variable (name, ASTExpression (expr)))
-            | Some _ ->
-                failwith "global variables not yet supported"
+            | Some g ->
+                expr.valuetype <- Some g.value_type
             end
         | Some v ->
             set_valuetype { data=v.type_spec.data; qualifier=None }

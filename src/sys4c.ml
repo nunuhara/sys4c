@@ -85,7 +85,7 @@ class type_define_visitor ain = object
     | Global (g) ->
         if Option.is_some (Alice.Ain.get_global ain g.name) then
           failwith "duplicate global variable definition";
-        ignore (Alice.Ain.add_global ain g.name)
+        ignore (Alice.Ain.add_global ain g.name (jaf_to_ain_type g.type_spec))
     | Function (f) ->
         if Option.is_some (Alice.Ain.get_function ain f.name) then
           failwith "duplicate function definition";
