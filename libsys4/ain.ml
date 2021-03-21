@@ -9,6 +9,7 @@ open Printf
 type ain = unit ptr
 let ain : ain typ = ptr void
 
+(** Bindings for `struct ain_type` objects *)
 module Type = struct
   type t_c
   let t_c : t_c structure typ = structure "ain_type"
@@ -39,6 +40,8 @@ module Type = struct
     | Enum of int
     | HLLFunc
     | IFaceWrap
+    (* internal compiler use *)
+    | Function of int
   and t = {
     data : data;
     is_ref : bool;
@@ -65,6 +68,7 @@ module Type = struct
     | Enum (no) -> sprintf "enum<%d>" no (* FIXME *)
     | HLLFunc -> "hll_func"
     | IFaceWrap -> "interface_wrap"
+    | Function (no) -> if no >= 0 then sprintf "function<%d>" no else "function"
   and to_string o =
     let prefix = if o.is_ref then "ref " else "" in
     prefix ^ (data_to_string o.data)
@@ -107,6 +111,7 @@ module Type = struct
           | Enum (_) -> failwith "tried to create ref array<enum>"
           | HLLFunc -> failwith "tried to create ref array<hll_func>"
           | IFaceWrap -> failwith "tried to create ref array<iface_wrap<...>>"
+          | Function (_) -> failwith "tried to create ref array<function>"
           end
       | Wrap (_) -> failwith "tried to create ref wrap<...>"
       | Option (_) -> failwith "tried to create ref option<...>"
@@ -116,6 +121,7 @@ module Type = struct
       | Enum (_) -> failwith "tried to create ref enum"
       | HLLFunc -> failwith "tried to create ref hll_func"
       | IFaceWrap -> failwith "tried to create ref iface_wrap<...>"
+      | Function (_) -> failwith "tried to create ref function"
     else
       match o.data with
         | Void -> 0
@@ -151,6 +157,7 @@ module Type = struct
             | Enum (_) -> failwith "tried to create array<enum>"
             | HLLFunc -> failwith "tried to create array<hll_func>"
             | IFaceWrap -> failwith "tried to create array<iface_wrap<...>>"
+            | Function (_) -> failwith "tried to create array<function>"
             end
         | Wrap (_) -> 82
         | Option (_) -> 86
@@ -160,6 +167,7 @@ module Type = struct
         | Enum (_) -> 92
         | HLLFunc -> 95
         | IFaceWrap -> 100
+        | Function (_) -> failwith "tried to create function"
   and to_c_struc o =
     match o.data with
     | Struct (no) | FuncType (no) | Delegate (no) | Enum2 (no) | Enum (no) -> no
@@ -241,9 +249,9 @@ module Type = struct
     | 95 -> make HLLFunc
     | 100 -> make IFaceWrap
     | _ -> failwith "Invalid or unknown data type in ain file"
-
 end
 
+(** Bindings for `struct ain_variable` objects *)
 module Variable = struct
   type initval_c
   let initval_c : initval_c union typ = union "initval_data"
@@ -278,6 +286,9 @@ module Variable = struct
     var_type : int
   }
 
+  let make_local name value_type =
+    { index=0; name; name2=""; value_type; initval=None; group_index=0; var_type=0 }
+
   let of_ptr p i =
     { index = i;
       name = getf (!@ p) name;
@@ -288,8 +299,27 @@ module Variable = struct
       var_type = getf (!@ p) var_type
     }
 
+  let write_ptr src dst =
+    setf !@dst name src.name;
+    setf !@dst name2 src.name2;
+    Type.write_ptr src.value_type (addr (getf !@dst value_type));
+    (* FIXME: should use Option.is_some, but dst.has_initval isn't boolean...? *)
+    begin match src.initval with
+    | None -> setf !@dst has_initval (Signed.Int32.of_int 0)
+    | Some _ -> setf !@dst has_initval (Signed.Int32.of_int 1)
+    end;
+    begin match src.initval with
+    | None -> ()
+    | Some Int (i) -> setf (getf !@dst initval) initval_i (Signed.Int32.of_int i)
+    | Some Float (f) -> setf (getf !@dst initval) initval_f f
+    | Some String (s) -> setf (getf !@dst initval) initval_s s
+    end;
+    setf !@dst group_index (Signed.Int32.of_int src.group_index);
+    setf !@dst var_type src.var_type
+
 end
 
+(** Bindings for `struct ain_function` objects *)
 module Function = struct
   type t_c
   let t_c : t_c structure typ = structure "ain_function"
@@ -308,19 +338,79 @@ module Function = struct
 
   type t = {
     index : int;
-    address : int;
     name : string;
-    nr_args : int;
-    vars : Variable.t list;
-    return_type : Type.t;
-    is_label : bool;
-    is_lambda : int;
-    crc : int;
-    struct_type : int;
-    enum_type : int
+    mutable address : int;
+    mutable nr_args : int;
+    mutable vars : Variable.t list;
+    mutable return_type : Type.t;
+    mutable is_label : bool;
+    mutable is_lambda : int;
+    mutable crc : int;
+    mutable struct_type : int;
+    mutable enum_type : int
   }
+
+  (* internal to Ain module *)
+  let of_ptr p i =
+    let rec vars_of_ptr p n result =
+      if n == 0 then
+        List.rev result
+      else
+        vars_of_ptr (p +@ 1) (n - 1) ((Variable.of_ptr p (List.length result))::result)
+    in
+    { index = i;
+      address = Unsigned.UInt32.to_int (getf !@p address);
+      name = getf !@p name;
+      nr_args = Signed.Int32.to_int (getf !@p nr_args);
+      vars = vars_of_ptr (getf !@p vars) (Signed.Int32.to_int (getf !@p nr_vars)) [];
+      return_type = Type.of_ptr (addr (getf !@p return_type));
+      is_label = getf !@p is_label;
+      is_lambda = Signed.Int32.to_int (getf !@p is_lambda);
+      crc = Signed.Int32.to_int (getf !@p crc);
+      struct_type = Signed.Int32.to_int (getf !@p struct_type);
+      enum_type = Signed.Int32.to_int (getf !@p enum_type)
+    }
+
+  (* internal to Ain module *)
+  let c_of_int = foreign "_ain_function" (ain @-> int @-> returning (ptr_opt t_c))
+
+  (* internal to Ain module *)
+  let c_of_int_checked ain i =
+    match c_of_int ain i with
+    | None -> failwith "_ain_function returned NULL"
+    | Some obj -> obj
+
+  (** Get a function object by index from an ain file. *)
+  let of_int ain no =
+    of_ptr (c_of_int_checked ain no) no
+
+  (** Commit any changes to a function object to an ain file. *)
+  let write ain f =
+    let realloc_vars =
+      foreign "_ain_function_realloc_vars" ((ptr t_c) @-> int @-> returning void)
+    in
+    let rec write_vars dst = function
+      | [] -> ()
+      | x::xs ->
+          Variable.write_ptr x dst;
+          write_vars (dst +@ 1) xs
+    in
+    let f_c = c_of_int_checked ain f.index in
+    (* XXX: name is fixed upon creation and never updated *)
+    setf !@f_c address (Unsigned.UInt32.of_int f.address);
+    setf !@f_c is_label f.is_label;
+    Type.write_ptr f.return_type (addr (getf !@f_c return_type));
+    setf !@f_c nr_args (Signed.Int32.of_int f.nr_args);
+    setf !@f_c is_lambda (Signed.Int32.of_int f.is_lambda);
+    setf !@f_c crc (Signed.Int32.of_int f.crc);
+    setf !@f_c struct_type (Signed.Int32.of_int f.struct_type);
+    setf !@f_c enum_type (Signed.Int32.of_int f.enum_type);
+    realloc_vars f_c (List.length f.vars);
+    write_vars (getf !@f_c vars) f.vars
+
 end
 
+(** Bindings for `struct ain_initval` objects. *)
 module Initval = struct
   type initval_c
   let initval_c : initval_c union typ = union "initval_data"
@@ -348,6 +438,7 @@ module Initval = struct
   }
 end
 
+(** Bindings for `struct ain_struct` objects *)
 module Struct = struct
   type interface_c
   let interface_c : interface_c structure typ = structure "ain_interface"
@@ -384,6 +475,7 @@ module Struct = struct
   }
 end
 
+(** Bindings for `struct ain_library` objects (and related types). *)
 module Library = struct
   module Argument = struct
     type t
@@ -427,6 +519,7 @@ module Library = struct
   }
 end
 
+(** Bindings for `struct ain_switch` objects. *)
 module Switch = struct
   type t_c
   type t_case
@@ -452,6 +545,7 @@ module Switch = struct
   }
 end
 
+(** Bindings for `struct ain_function_type` objects. *)
 module FunctionType = struct
   type t_c
   let t_c : t_c structure typ = structure "ain_function_type"
@@ -471,6 +565,7 @@ module FunctionType = struct
   }
 end
 
+(** Bindings for `struct ain_enum` objects. *)
 module Enum = struct
   type t_c
   let t_c : t_c structure typ = structure "ain_enum"
@@ -514,7 +609,7 @@ let get_library_function' =
   foreign "ain_get_library_function" (ain @-> int @-> string @-> returning int)
 let get_functype' = foreign "ain_get_functype" (ain @-> string @-> returning int)
 let get_string_no' = foreign "ain_get_string_no" (ain @-> string @-> returning int)
-let add_function = foreign "ain_add_function" (ain @-> string @-> returning int)
+let add_function' = foreign "ain_add_function" (ain @-> string @-> returning int)
 let dup_function = foreign "ain_dup_function" (ain @-> int @-> returning int)
 let add_global' = foreign "ain_add_global" (ain @-> string @-> returning int)
 let add_initval = foreign "ain_add_initval" (ain @-> int @-> returning int)
@@ -527,8 +622,6 @@ let add_file = foreign "ain_add_file" (ain @-> string @-> returning int)
 let return_option i =
   if i < 0 then None else Some i
 
-let get_function p name = get_function' p name |> return_option
-(*let get_global p name = get_global' p name |> return_option*)
 let get_struct p name = get_struct' p name |> return_option
 let get_enum p name = get_enum' p name |> return_option
 let get_library p name = get_library' p name |> return_option
@@ -552,3 +645,19 @@ let add_global ain_file name t =
   match (ain_global ain_file no) with
   | None -> failwith "failed to add global to .ain file"
   | Some g -> Type.write_ptr t (addr (getf (!@ g) Variable.value_type))
+
+let get_function_by_index p no =
+  match Function.c_of_int p no with
+  | None -> failwith "_ain_function returned NULL"
+  | Some obj -> Function.of_ptr obj no
+
+let get_function p name =
+  match get_function' p name with
+  | -1 -> None
+  | i -> Some (Function.of_int p i)
+
+let add_function p name =
+  let no = add_function' p name in
+  match Function.c_of_int p no with
+  | None -> failwith "_ain_function returned NULL"
+  | Some obj -> Function.of_ptr obj no

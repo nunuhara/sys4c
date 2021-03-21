@@ -18,6 +18,7 @@ open Jaf
 
 exception Type_error of Alice.Ain.Type.data * expression option * ast_node
 exception Undefined_variable of string * ast_node
+exception Arity_error of Alice.Ain.Function.t * expression list * ast_node
 
 let rec type_equal expected actual =
   match expected with
@@ -117,6 +118,12 @@ let rec type_equal expected actual =
       | Alice.Ain.Type.IFaceWrap -> true
       | _ -> false
       end
+  | Alice.Ain.Type.Function (_) ->
+      begin match actual with
+      (* TODO: should functype/delegate count here? *)
+      | Alice.Ain.Type.Function (_) -> true
+      | _ -> false
+      end
 
 let type_castable dst src =
   match dst with
@@ -212,14 +219,20 @@ class type_analyze_visitor ain = object (self)
         expr.valuetype <- Some (Alice.Ain.Type.make Alice.Ain.Type.String)
     | Ident (name) ->
         begin match env#get name with
-        | None ->
-            begin match Alice.Ain.get_global ain name with
-            | None -> raise (Undefined_variable (name, ASTExpression (expr)))
-            | Some g ->
-                expr.valuetype <- Some g.value_type
-            end
         | Some v ->
             set_valuetype { data=v.type_spec.data; qualifier=None }
+        | None ->
+            begin match Alice.Ain.get_global ain name with
+            | Some g ->
+                expr.valuetype <- Some g.value_type
+            | None ->
+                begin match Alice.Ain.get_function ain name with
+                | Some f ->
+                    expr.valuetype <- Some (Alice.Ain.Type.make (Alice.Ain.Type.Function f.index))
+                | None ->
+                    raise (Undefined_variable (name, ASTExpression (expr)))
+                end
+            end
         end
     | Unary (op, e) ->
         begin match op with
@@ -290,8 +303,34 @@ class type_analyze_visitor ain = object (self)
         end
     | Member (_, _) ->
         failwith "struct members not yet supported"
-    | Call (_, _) ->
-        failwith "function calls not yet supported"
+    | Call (fn, args) ->
+        begin match (unwrap fn.valuetype).data with
+        | Alice.Ain.Type.Function (no) ->
+            let f = Alice.Ain.Function.of_int ain no in
+            if f.nr_args != (List.length args) then
+              raise (Arity_error (f, args, ASTExpression (expr)))
+            else if f.nr_args > 0 then begin
+              (* `take` not in standard library... *)
+              let take n lst =
+                let rec take_r n lst result =
+                  if n = 0 then
+                    List.rev result
+                  else
+                    match lst with
+                    | [] -> failwith "nr_args is > nr_vars"
+                    | x::xs -> take_r (n - 1) xs (x::result)
+                in
+                take_r n lst []
+              in
+              let check_arg a (v:Alice.Ain.Variable.t) =
+                check v.value_type.data a
+              in
+              List.iter2 check_arg args (take f.nr_args f.vars)
+            end;
+            expr.valuetype <- Some f.return_type
+        | _ ->
+            raise (Type_error (Alice.Ain.Type.Function (-1), Some fn, ASTExpression (expr)))
+        end
     | New (_, _) ->
         failwith "'new' operator not yet supported"
     | This ->

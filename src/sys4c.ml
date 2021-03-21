@@ -89,7 +89,9 @@ class type_define_visitor ain = object
     | Function (f) ->
         if Option.is_some (Alice.Ain.get_function ain f.name) then
           failwith "duplicate function definition";
-        ignore (Alice.Ain.add_function ain f.name)
+        Alice.Ain.add_function ain f.name
+        |> jaf_to_ain_function f
+        |> Alice.Ain.Function.write ain
     | FuncType (f) ->
         if Option.is_some (Alice.Ain.get_functype ain f.name) then
           failwith "duplicate functype definition";
@@ -136,6 +138,11 @@ let _ =
       exit 1
   | Undefined_variable (name, _) ->
       printf "Undefined variable: %s\n" name;
+      Alice.Ain.free p;
+      exit 1
+  | Arity_error (f, args, parent) ->
+      printf "Error: wrong number of arguments to function %s (expected %d; got %d)\n" f.name f.nr_args (List.length args);
+      printf "\tin: %s\n" (ast_to_string parent);
       Alice.Ain.free p;
       exit 1
   | Lexer.Eof ->

@@ -552,3 +552,13 @@ let jaf_to_ain_type spec =
     | _ -> false
   in
   Alice.Ain.Type.make ~is_ref (jaf_to_ain_data_type spec.data)
+
+let jaf_to_ain_function j_f (a_f:Alice.Ain.Function.t) =
+  let jaf_to_ain_local (v:variable) =
+    Alice.Ain.Variable.make_local v.name (jaf_to_ain_type v.type_spec)
+  in
+  a_f.nr_args <- List.length j_f.params;
+  a_f.vars <- List.map jaf_to_ain_local j_f.params;
+  a_f.return_type <- jaf_to_ain_type j_f.return;
+  a_f
+
