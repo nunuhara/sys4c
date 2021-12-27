@@ -234,6 +234,29 @@ class type_analyze_visitor ain = object (self)
       | New (_, _) -> ()
       | _ -> raise (Not_lvalue_error (e, ASTExpression (expr)))
     in
+    (* check function call arguments *)
+    let check_call (f:Alice.Ain.Function.t) args =
+      if f.nr_args != (List.length args) then
+        raise (Arity_error (f, args, ASTExpression (expr)))
+      else if f.nr_args > 0 then begin
+        (* `take` not in standard library... *)
+        let take n lst =
+          let rec take_r n lst result =
+            if n = 0 then
+              List.rev result
+            else
+              match lst with
+              | [] -> failwith "nr_args is > nr_vars"
+              | x::xs -> take_r (n - 1) xs (x::result)
+          in
+          take_r n lst []
+        in
+        let check_arg a (v:Alice.Ain.Variable.t) =
+          check v.value_type.data a
+        in
+        List.iter2 check_arg args (take f.nr_args f.vars)
+      end
+    in
     let set_valuetype spec =
       expr.valuetype <- Some (jaf_to_ain_type spec)
     in
@@ -352,32 +375,28 @@ class type_analyze_visitor ain = object (self)
         begin match (unwrap fn.valuetype).data with
         | Alice.Ain.Type.Function (no) ->
             let f = Alice.Ain.Function.of_int ain no in
-            if f.nr_args != (List.length args) then
-              raise (Arity_error (f, args, ASTExpression (expr)))
-            else if f.nr_args > 0 then begin
-              (* `take` not in standard library... *)
-              let take n lst =
-                let rec take_r n lst result =
-                  if n = 0 then
-                    List.rev result
-                  else
-                    match lst with
-                    | [] -> failwith "nr_args is > nr_vars"
-                    | x::xs -> take_r (n - 1) xs (x::result)
-                in
-                take_r n lst []
-              in
-              let check_arg a (v:Alice.Ain.Variable.t) =
-                check v.value_type.data a
-              in
-              List.iter2 check_arg args (take f.nr_args f.vars)
-            end;
+            check_call f args;
             expr.valuetype <- Some f.return_type
         | _ ->
             raise (Type_error (Alice.Ain.Type.Function (-1), Some fn, ASTExpression (expr)))
         end
-    | New (_, _) ->
-        failwith "'new' operator not yet supported"
+    | New (t, args) ->
+        begin match t with
+        | Struct (_, i) ->
+            (* TODO: look up the correct constructor for given arguments *)
+            begin match (Alice.Ain.Struct.of_int ain i).constructor with
+            | -1 ->
+                if (List.length args) != 0 then
+                  (* TODO: signal error properly here *)
+                  failwith "arguments provided to default constructor";
+                set_valuetype { data=t; qualifier=None }
+            | no ->
+                let ctor = Alice.Ain.Function.of_int ain no in
+                check_call ctor args;
+                expr.valuetype <- Some ctor.return_type
+            end
+        | _ -> raise (Type_error (Alice.Ain.Type.Struct (-1), None, ASTExpression (expr)))
+        end
     | This ->
         match current_class with
         | Some i ->

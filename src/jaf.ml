@@ -398,7 +398,7 @@ let rec expr_to_string (e : expression) =
   | Call (f, args) ->
       sprintf "%s%s" (expr_to_string f) (arglist_to_string args)
   | New (t, args) ->
-      sprintf "%s%s" (data_type_to_string t) (arglist_to_string args)
+      sprintf "new %s%s" (data_type_to_string t) (arglist_to_string args)
   | This ->
       "this"
 
