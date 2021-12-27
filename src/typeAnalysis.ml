@@ -19,6 +19,7 @@ open Jaf
 exception Type_error of Alice.Ain.Type.data * expression option * ast_node
 exception Undefined_variable of string * ast_node
 exception Arity_error of Alice.Ain.Function.t * expression list * ast_node
+exception Not_lvalue_error of expression * ast_node
 
 let rec type_equal expected actual =
   match expected with
@@ -215,10 +216,24 @@ class type_analyze_visitor ain = object (self)
       | None -> failwith "type-checker: valuetype is None"
       | Some vt -> vt
     in
+    (* convenience functions which always pass parent expression *)
     let check = type_check (ASTExpression (expr)) in
     let check_numeric = type_check_numeric (ASTExpression (expr)) in
     let check_struct = type_check_struct (ASTExpression (expr)) in
     let check_expr a b = check (unwrap a.valuetype).data b in
+    (* an lvalue is an expression which denotes a location that can be assigned to/referenced *)
+    let check_lvalue (e:expression) =
+      let check_lvalue_type = function
+        | Alice.Ain.Type.Function (_) -> raise (Not_lvalue_error (e, ASTExpression (expr)))
+        | _ -> ()
+      in
+      match e.node with
+      | Ident (_) -> check_lvalue_type (unwrap e.valuetype).data
+      | Member (_, _) -> check_lvalue_type (unwrap e.valuetype).data
+      | Subscript (_, _) -> ()
+      | New (_, _) -> ()
+      | _ -> raise (Not_lvalue_error (e, ASTExpression (expr)))
+    in
     let set_valuetype spec =
       expr.valuetype <- Some (jaf_to_ain_type spec)
     in
@@ -280,7 +295,7 @@ class type_analyze_visitor ain = object (self)
         end;
         expr.valuetype <- a.valuetype
     | Assign (op, lhs, rhs) ->
-        (* TODO: check that lhs is an lvalue *)
+        check_lvalue lhs;
         begin match op with
         | EqAssign ->
             check_expr lhs rhs

@@ -173,6 +173,11 @@ let _ =
       printf "\tin: %s\n" (ast_to_string parent);
       Alice.Ain.free p;
       exit 1
+  | Not_lvalue_error (expr, parent) ->
+      printf "Error: not an lvalue: %s\n" (expr_to_string expr);
+      printf "\tin: %s\n" (ast_to_string parent);
+      Alice.Ain.free p;
+      exit 1
   | Lexer.Eof ->
       (* FIXME: EOF should be a token handled by the parser, not an exception *)
       Alice.Ain.free p;
