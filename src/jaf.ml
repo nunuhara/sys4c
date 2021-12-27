@@ -562,3 +562,14 @@ let jaf_to_ain_function j_f (a_f:Alice.Ain.Function.t) =
   a_f.return_type <- jaf_to_ain_type j_f.return;
   a_f
 
+let jaf_to_ain_struct j_s (a_s:Alice.Ain.Struct.t) =
+  let filter_members = function
+    | MemberDecl (v) -> Some (Alice.Ain.Variable.make_member v.name (jaf_to_ain_type v.type_spec))
+    | _ -> None
+  in
+  (* TODO: interfaces *)
+  (* TODO: constructor *)
+  (* TODO: destructor *)
+  a_s.members <- List.filter_map filter_members j_s.decls;
+  (* TODO: vmethods *)
+  a_s

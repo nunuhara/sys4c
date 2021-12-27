@@ -289,6 +289,9 @@ module Variable = struct
   let make_local name value_type =
     { index=0; name; name2=""; value_type; initval=None; group_index=0; var_type=0 }
 
+  let make_member name value_type =
+    { index=0; name; name2=""; value_type; initval=None; group_index=0; var_type=1 }
+
   let of_ptr p i =
     { index = i;
       name = getf (!@ p) name;
@@ -468,11 +471,71 @@ module Struct = struct
     index : int;
     name : string;
     interfaces : interface list;
-    constructor : int;
-    destructor : int;
-    members : Variable.t list;
+    mutable constructor : int;
+    mutable destructor : int;
+    mutable members : Variable.t list;
     vmethods : int list
   }
+
+  (* internal to Ain module *)
+  let of_ptr p i =
+    let interface_of_ptr p =
+      { struct_type = Signed.Int32.to_int (getf !@p struct_type);
+        unknown = Signed.Int32.to_int (getf !@p unknown)
+      }
+    in
+    let rec interfaces_of_ptr p n result =
+      if n == 0 then
+        List.rev result
+      else
+        interfaces_of_ptr (p +@ 1) (n - 1) ((interface_of_ptr p)::result)
+    in
+    let rec members_of_ptr p n result =
+      if n == 0 then
+        List.rev result
+      else
+        members_of_ptr (p +@ 1) (n - 1) ((Variable.of_ptr p (List.length result))::result)
+    in
+    { index = i;
+      name = getf !@p name;
+      interfaces = interfaces_of_ptr (getf !@p interfaces) (Signed.Int32.to_int (getf !@p nr_interfaces)) [];
+      constructor = Signed.Int32.to_int (getf !@p constructor);
+      destructor = Signed.Int32.to_int (getf !@p destructor);
+      members = members_of_ptr (getf !@p members) (Signed.Int32.to_int (getf !@p nr_members)) [];
+      vmethods = []
+    }
+
+  (* internal to Ain module *)
+  let c_of_int = foreign "_ain_struct" (ain @-> int @-> returning (ptr_opt t_c))
+
+  (* internal to Ain module *)
+  let c_of_int_checked ain i =
+    match c_of_int ain i with
+    | None -> failwith "_ain_struct returned NULL"
+    | Some obj -> obj
+
+  (** Get a structure object by index from an ain file. *)
+  let of_int ain no =
+    of_ptr (c_of_int_checked ain no) no
+
+  (** Commit any changes to a function object to an ain file. *)
+  let write ain s =
+    let realloc_members =
+      foreign "_ain_struct_realloc_members" ((ptr t_c) @-> int @-> returning void)
+    in
+    let rec write_members dst = function
+      | [] -> ()
+      | x :: xs ->
+          Variable.write_ptr x dst;
+          write_members (dst +@ 1) xs
+    in
+    let s_c = c_of_int_checked ain s.index in
+    (* XXX: name is fixed upon creation and never updated *)
+    setf !@s_c constructor (Signed.Int32.of_int s.constructor);
+    setf !@s_c destructor (Signed.Int32.of_int s.destructor);
+    realloc_members s_c (List.length s.members);
+    write_members (getf !@s_c members) s.members
+
 end
 
 (** Bindings for `struct ain_library` objects (and related types). *)
@@ -611,9 +674,9 @@ let get_functype' = foreign "ain_get_functype" (ain @-> string @-> returning int
 let get_string_no' = foreign "ain_get_string_no" (ain @-> string @-> returning int)
 let add_function' = foreign "ain_add_function" (ain @-> string @-> returning int)
 let dup_function = foreign "ain_dup_function" (ain @-> int @-> returning int)
-let add_global' = foreign "ain_add_global" (ain @-> string @-> returning int)
+let add_global = foreign "ain_add_global" (ain @-> string @-> returning int)
 let add_initval = foreign "ain_add_initval" (ain @-> int @-> returning int)
-let add_struct = foreign "ain_add_struct" (ain @-> string @-> returning int)
+let add_struct' = foreign "ain_add_struct" (ain @-> string @-> returning int)
 let add_library = foreign "ain_add_library" (ain @-> string @-> returning int)
 let add_string = foreign "ain_add_string" (ain @-> string @-> returning int)
 let add_message = foreign "ain_add_message" (ain @-> string @-> returning int)
@@ -622,7 +685,6 @@ let add_file = foreign "ain_add_file" (ain @-> string @-> returning int)
 let return_option i =
   if i < 0 then None else Some i
 
-let get_struct p name = get_struct' p name |> return_option
 let get_enum p name = get_enum' p name |> return_option
 let get_library p name = get_library' p name |> return_option
 let get_library_function p i name = get_library_function' p i name |> return_option
@@ -640,11 +702,14 @@ let get_global p name =
       | Some obj -> Some (Variable.of_ptr obj i)
       end
 
-let add_global ain_file name t =
-  let no = add_global' ain_file name in
-  match (ain_global ain_file no) with
-  | None -> failwith "failed to add global to .ain file"
-  | Some g -> Type.write_ptr t (addr (getf (!@ g) Variable.value_type))
+let write_global p name t =
+  match get_global' p name with
+  | -1 -> failwith "global not defined in ain file"
+  | i ->
+      begin match ain_global p i with
+      | None -> failwith "_ain_global returned NULL"
+      | Some g -> Type.write_ptr t (addr (getf (!@ g) Variable.value_type))
+      end
 
 let get_function_by_index p no =
   match Function.c_of_int p no with
@@ -661,3 +726,16 @@ let add_function p name =
   match Function.c_of_int p no with
   | None -> failwith "_ain_function returned NULL"
   | Some obj -> Function.of_ptr obj no
+
+let get_struct_by_index p no =
+  match Struct.c_of_int p no with
+  | None -> failwith "_ain_struct returned NULL"
+  | Some obj -> Struct.of_ptr obj no
+
+let get_struct p name =
+  match get_struct' p name with
+  | -1 -> None
+  | i -> Some (Struct.of_int p i)
+
+let add_struct p name =
+  get_struct_by_index p (add_struct' p name)

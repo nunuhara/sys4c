@@ -22,3 +22,15 @@ struct ain_variable *_ain_global(struct ain *ain, int i)
 {
 	return (i < 0 || i >= ain->nr_globals) ? NULL : &ain->globals[i];
 }
+
+struct ain_struct *_ain_struct(struct ain *ain, int i)
+{
+	return (i < 0 || i >= ain->nr_structures) ? NULL : &ain->structures[i];
+}
+
+void _ain_struct_realloc_members(struct ain_struct *s, int nr_members)
+{
+	ain_free_variables(s->members, s->nr_members);
+	s->members = xcalloc(nr_members, sizeof(struct ain_variable));
+	s->nr_members = nr_members;
+}

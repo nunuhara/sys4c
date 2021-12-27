@@ -154,6 +154,16 @@ let type_check_numeric parent actual =
       | _ -> raise (Type_error (Int, Some actual, parent))
       end
 
+let type_check_struct parent actual =
+  match actual.valuetype with
+  | None ->
+      failwith "tried to type check untyped expression"
+  | Some a_t ->
+      begin match a_t.data with
+      | Alice.Ain.Type.Struct (i) -> i
+      | _ -> raise (Type_error(Struct 0, Some actual, parent))
+      end
+
 class type_analyze_visitor ain = object (self)
   inherit ivisitor as super
 
@@ -205,6 +215,7 @@ class type_analyze_visitor ain = object (self)
     in
     let check = type_check (ASTExpression (expr)) in
     let check_numeric = type_check_numeric (ASTExpression (expr)) in
+    let check_struct = type_check_struct (ASTExpression (expr)) in
     let check_expr a b = check (unwrap a.valuetype).data b in
     let set_valuetype spec =
       expr.valuetype <- Some (jaf_to_ain_type spec)
@@ -301,8 +312,24 @@ class type_analyze_visitor ain = object (self)
             let expected = Array (array_type, 1) in
             raise (Type_error ((jaf_to_ain_data_type expected), Some obj, ASTExpression (expr)))
         end
-    | Member (_, _) ->
-        failwith "struct members not yet supported"
+    | Member (obj, member_name) ->
+        let struc = Alice.Ain.get_struct_by_index ain (check_struct obj) in
+        let check_member (m : Alice.Ain.Variable.t) =
+          String.equal m.name member_name
+        in
+        begin match List.find_opt check_member struc.members with
+        | Some member ->
+            expr.valuetype <- Some member.value_type
+        | None ->
+            let fun_name = struc.name ^ "@" ^ member_name in
+            begin match Alice.Ain.get_function ain fun_name with
+            | Some f ->
+                expr.valuetype <- Some (Alice.Ain.Type.make (Alice.Ain.Type.Function f.index))
+            | None ->
+                (* TODO: separate error type for this? *)
+                raise (Undefined_variable (struc.name ^ "." ^ member_name, ASTExpression(expr)))
+            end
+        end
     | Call (fn, args) ->
         begin match (unwrap fn.valuetype).data with
         | Alice.Ain.Type.Function (no) ->
@@ -405,9 +432,14 @@ class type_analyze_visitor ain = object (self)
     | Enum (_) -> ()
 
   method check_variable decl =
+    (* check that array dims are integers *)
     List.iter (fun e -> type_check (ASTVariable (decl)) Int e) decl.array_dim;
-    match decl.initval with
+    (* check initval matches declared type *)
+    begin match decl.initval with
     | Some expr -> type_check (ASTVariable (decl)) (jaf_to_ain_data_type decl.type_spec.data) expr
     | None -> ()
+    end;
+    (* add local variable to environment *)
+    env#push_var decl
 
 end

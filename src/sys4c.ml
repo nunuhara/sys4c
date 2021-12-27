@@ -19,14 +19,14 @@ open Jaf
 open TypeAnalysis
 
 (*
- * AST pass to resolve struct/enum/function types.
+ * AST pass to resolve user-defined types (struct/enum/function types).
  *)
 class type_resolve_visitor ain = object (self)
   inherit ivisitor as super
 
   method resolve_type name =
     match Alice.Ain.get_struct ain name with
-    | Some (i) -> Struct (name, i)
+    | Some (obj) -> Struct (name, obj.index)
     | None -> failwith "Undefined type"
 
   method resolve_typespec ts =
@@ -74,8 +74,7 @@ class type_resolve_visitor ain = object (self)
 end
 
 (*
- * AST pass over top-level declarations to define types and register
- * functions/globals in the .ain file.
+ * AST pass over top-level declarations to define function/struct types.
  *)
 class type_define_visitor ain = object
   inherit ivisitor
@@ -83,15 +82,39 @@ class type_define_visitor ain = object
   method! visit_declaration decl =
     match decl with
     | Global (g) ->
+        Alice.Ain.write_global ain g.name (jaf_to_ain_type g.type_spec)
+    | Function (f) ->
+        begin match Alice.Ain.get_function ain f.name with
+        | Some (obj) -> obj |> jaf_to_ain_function f |> Alice.Ain.Function.write ain
+        | None -> failwith "undefined function"
+        end
+    | FuncType (_) ->
+        failwith "function types not yet supported"
+    | StructDef (s) ->
+        begin match Alice.Ain.get_struct ain s.name with
+        | Some (obj) -> obj |> jaf_to_ain_struct s |> Alice.Ain.Struct.write ain
+        | None -> failwith "undefined struct"
+        end
+    | Enum (_) ->
+        failwith "enum types not yet supported"
+end
+
+(*
+ * AST pass over top-level declarations register names in the .ain file.
+ *)
+class type_declare_visitor ain = object
+  inherit ivisitor
+
+  method! visit_declaration decl =
+    match decl with
+    | Global (g) ->
         if Option.is_some (Alice.Ain.get_global ain g.name) then
           failwith "duplicate global variable definition";
-        ignore (Alice.Ain.add_global ain g.name (jaf_to_ain_type g.type_spec))
+        ignore (Alice.Ain.add_global ain g.name)
     | Function (f) ->
         if Option.is_some (Alice.Ain.get_function ain f.name) then
           failwith "duplicate function definition";
-        Alice.Ain.add_function ain f.name
-        |> jaf_to_ain_function f
-        |> Alice.Ain.Function.write ain
+        ignore (Alice.Ain.add_function ain f.name)
     | FuncType (f) ->
         if Option.is_some (Alice.Ain.get_functype ain f.name) then
           failwith "duplicate functype definition";
@@ -112,8 +135,13 @@ let _ =
     let lexbuf = Lexing.from_channel stdin in
     while true do
       let result = Parser.main Lexer.token lexbuf in
-      (new type_define_visitor p)#visit_toplevel result;
+      (* register global names in ain file *)
+      (new type_declare_visitor p)#visit_toplevel result;
+      (* resolve type names *)
       (new type_resolve_visitor p)#visit_toplevel result;
+      (* define functions and structs in ain file *)
+      (new type_define_visitor p)#visit_toplevel result;
+      (* type check *)
       (new type_analyze_visitor p)#visit_toplevel result;
       print_string "-> ";
       List.iter (fun d -> print_string (decl_to_string d)) result;
@@ -146,5 +174,6 @@ let _ =
       Alice.Ain.free p;
       exit 1
   | Lexer.Eof ->
+      (* FIXME: EOF should be a token handled by the parser, not an exception *)
       Alice.Ain.free p;
       exit 0
