@@ -410,8 +410,14 @@ class type_analyze_visitor ain = object (self)
             | _ -> raise (Type_error ((jaf_to_ain_data_type f.return.data), None, ASTStatement (stmt)))
             end
         end
-    | MessageCall (_, _) ->
-        failwith "message calls not yet supported"
+    | MessageCall (_, f_name) ->
+        begin match Alice.Ain.get_function ain f_name with
+        | Some f ->
+            if f.nr_args > 0 then
+              raise (Arity_error(f, [], ASTStatement (stmt)))
+        | None ->
+            raise (Undefined_variable (f_name, ASTStatement (stmt)))
+        end
     | RefAssign (_, _) ->
         failwith "reference assignment not yet supported"
 
