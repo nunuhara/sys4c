@@ -205,6 +205,8 @@ class type_analyze_visitor ain = object (self)
 
   (* XXX: needed for return type check *)
   val mutable current_function = None
+  (* XXX: needed for 'this' expression *)
+  val mutable current_class = None
 
   method! visit_expression expr =
     super#visit_expression expr;
@@ -278,6 +280,7 @@ class type_analyze_visitor ain = object (self)
         end;
         expr.valuetype <- a.valuetype
     | Assign (op, lhs, rhs) ->
+        (* TODO: check that lhs is an lvalue *)
         begin match op with
         | EqAssign ->
             check_expr lhs rhs
@@ -361,7 +364,12 @@ class type_analyze_visitor ain = object (self)
     | New (_, _) ->
         failwith "'new' operator not yet supported"
     | This ->
-        failwith "'this' keyword not yet supported"
+        match current_class with
+        | Some i ->
+            expr.valuetype <- Some (Alice.Ain.Type.make (Alice.Ain.Type.Struct i))
+        | None ->
+            (* TODO: separate error type for this? *)
+            raise (Undefined_variable ("this", ASTExpression(expr)))
 
   method! visit_statement stmt =
     (* Create new scope if needed *)
@@ -412,11 +420,21 @@ class type_analyze_visitor ain = object (self)
     self#check_variable var
 
   method! visit_declaration decl =
+    let function_class (f:fundecl) =
+      match String.split_on_char '@' f.name with
+      | hd :: _ ->
+          begin match Alice.Ain.get_struct' ain hd with
+          | -1 -> None
+          | i -> Some i
+          end
+      | _ -> None
+    in
     (* Create new scope if needed *)
     begin match decl with
     | Function (f) ->
         env#push;
         current_function <- Some f;
+        current_class <- function_class f;
         List.iter env#push_var f.params
     | _ -> ()
     end;
@@ -426,7 +444,8 @@ class type_analyze_visitor ain = object (self)
         self#check_variable g
     | Function (_) ->
         env#pop;
-        current_function <- None
+        current_function <- None;
+        current_class <- None
     | FuncType (_) -> ()
     | StructDef (_) -> ()
     | Enum (_) -> ()
