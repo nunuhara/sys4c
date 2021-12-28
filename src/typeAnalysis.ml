@@ -16,10 +16,25 @@
 
 open Jaf
 
-exception Type_error of Alice.Ain.Type.data * expression option * ast_node
+exception Type_error of Alice.Ain.Type.t * expression option * ast_node
 exception Undefined_variable of string * ast_node
 exception Arity_error of Alice.Ain.Function.t * expression list * ast_node
 exception Not_lvalue_error of expression * ast_node
+
+let data_type_error data expr parent =
+  raise (Type_error ({data=data; is_ref=false}, expr, parent))
+
+let ref_type_error data expr parent =
+  raise (Type_error ({data=data; is_ref=true}, expr, parent))
+
+let undefined_variable_error name parent =
+  raise (Undefined_variable (name, parent))
+
+let arity_error t args parent =
+  raise (Arity_error (t, args, parent))
+
+let not_an_lvalue_error expr parent =
+  raise (Not_lvalue_error (expr, parent))
 
 let rec type_equal expected actual =
   match expected with
@@ -143,7 +158,7 @@ let type_check parent expected actual =
       failwith "tried to type check untyped expression"
   | Some a_t ->
       if not (type_equal expected a_t.data) then
-        raise (Type_error (expected, Some actual, parent))
+        data_type_error expected (Some actual) parent
 
 let type_check_numeric parent actual =
   match actual.valuetype with
@@ -152,7 +167,7 @@ let type_check_numeric parent actual =
   | Some a_t ->
       begin match a_t.data with
       | Alice.Ain.Type.Int | Alice.Ain.Type.Bool | Alice.Ain.Type.Float -> ()
-      | _ -> raise (Type_error (Int, Some actual, parent))
+      | _ -> data_type_error Int (Some actual) parent
       end
 
 let type_check_struct parent actual =
@@ -162,8 +177,13 @@ let type_check_struct parent actual =
   | Some a_t ->
       begin match a_t.data with
       | Alice.Ain.Type.Struct (i) -> i
-      | _ -> raise (Type_error(Struct 0, Some actual, parent))
+      | _ -> data_type_error (Struct 0) (Some actual) parent
       end
+
+let unwrap valuetype =
+  match valuetype with
+  | None -> failwith "type-checker: valuetype is None"
+  | Some vt -> vt
 
 class type_analyze_visitor ain = object (self)
   inherit ivisitor as super
@@ -204,6 +224,19 @@ class type_analyze_visitor ain = object (self)
       search variables stack
   end
 
+  (* an lvalue is an expression which denotes a location that can be assigned to/referenced *)
+  method check_lvalue (e:expression) (parent:ast_node) =
+    let check_lvalue_type = function
+      | Alice.Ain.Type.Function (_) -> not_an_lvalue_error e parent
+      | _ -> ()
+    in
+    match e.node with
+    | Ident (_) -> check_lvalue_type (unwrap e.valuetype).data
+    | Member (_, _) -> check_lvalue_type (unwrap e.valuetype).data
+    | Subscript (_, _) -> ()
+    | New (_, _) -> ()
+    | _ -> not_an_lvalue_error e parent
+
   (* XXX: needed for return type check *)
   val mutable current_function = None
   (* XXX: needed for 'this' expression *)
@@ -211,33 +244,15 @@ class type_analyze_visitor ain = object (self)
 
   method! visit_expression expr =
     super#visit_expression expr;
-    let unwrap valuetype =
-      match valuetype with
-      | None -> failwith "type-checker: valuetype is None"
-      | Some vt -> vt
-    in
     (* convenience functions which always pass parent expression *)
     let check = type_check (ASTExpression (expr)) in
     let check_numeric = type_check_numeric (ASTExpression (expr)) in
     let check_struct = type_check_struct (ASTExpression (expr)) in
     let check_expr a b = check (unwrap a.valuetype).data b in
-    (* an lvalue is an expression which denotes a location that can be assigned to/referenced *)
-    let check_lvalue (e:expression) =
-      let check_lvalue_type = function
-        | Alice.Ain.Type.Function (_) -> raise (Not_lvalue_error (e, ASTExpression (expr)))
-        | _ -> ()
-      in
-      match e.node with
-      | Ident (_) -> check_lvalue_type (unwrap e.valuetype).data
-      | Member (_, _) -> check_lvalue_type (unwrap e.valuetype).data
-      | Subscript (_, _) -> ()
-      | New (_, _) -> ()
-      | _ -> raise (Not_lvalue_error (e, ASTExpression (expr)))
-    in
     (* check function call arguments *)
     let check_call (f:Alice.Ain.Function.t) args =
       if f.nr_args != (List.length args) then
-        raise (Arity_error (f, args, ASTExpression (expr)))
+        arity_error f args (ASTExpression (expr))
       else if f.nr_args > 0 then begin
         (* `take` not in standard library... *)
         let take n lst =
@@ -281,7 +296,7 @@ class type_analyze_visitor ain = object (self)
                 | Some f ->
                     expr.valuetype <- Some (Alice.Ain.Type.make (Alice.Ain.Type.Function f.index))
                 | None ->
-                    raise (Undefined_variable (name, ASTExpression (expr)))
+                    undefined_variable_error name (ASTExpression (expr))
                 end
             end
         end
@@ -318,7 +333,7 @@ class type_analyze_visitor ain = object (self)
         end;
         expr.valuetype <- a.valuetype
     | Assign (op, lhs, rhs) ->
-        check_lvalue lhs;
+        self#check_lvalue lhs (ASTExpression (expr));
         begin match op with
         | EqAssign ->
             check_expr lhs rhs
@@ -341,7 +356,7 @@ class type_analyze_visitor ain = object (self)
         expr.valuetype <- con.valuetype
     | Cast (t, e) ->
         if not (type_castable t (unwrap e.valuetype).data) then
-          raise (Type_error ((jaf_to_ain_data_type t), Some e, ASTExpression (expr)));
+          data_type_error (jaf_to_ain_data_type t) (Some e) (ASTExpression (expr));
         set_valuetype { data=t; qualifier=None }
     | Subscript (obj, i) ->
         check Int i;
@@ -351,7 +366,7 @@ class type_analyze_visitor ain = object (self)
         | _ ->
             let array_type = { data=Unresolved ("?"); qualifier=None } in
             let expected = Array (array_type, 1) in
-            raise (Type_error ((jaf_to_ain_data_type expected), Some obj, ASTExpression (expr)))
+            data_type_error (jaf_to_ain_data_type expected) (Some obj) (ASTExpression (expr))
         end
     | Member (obj, member_name) ->
         let struc = Alice.Ain.get_struct_by_index ain (check_struct obj) in
@@ -368,7 +383,7 @@ class type_analyze_visitor ain = object (self)
                 expr.valuetype <- Some (Alice.Ain.Type.make (Alice.Ain.Type.Function f.index))
             | None ->
                 (* TODO: separate error type for this? *)
-                raise (Undefined_variable (struc.name ^ "." ^ member_name, ASTExpression(expr)))
+                undefined_variable_error (struc.name ^ "." ^ member_name) (ASTExpression(expr))
             end
         end
     | Call (fn, args) ->
@@ -378,7 +393,7 @@ class type_analyze_visitor ain = object (self)
             check_call f args;
             expr.valuetype <- Some f.return_type
         | _ ->
-            raise (Type_error (Alice.Ain.Type.Function (-1), Some fn, ASTExpression (expr)))
+            data_type_error (Alice.Ain.Type.Function (-1)) (Some fn) (ASTExpression (expr))
         end
     | New (t, args) ->
         begin match t with
@@ -395,7 +410,7 @@ class type_analyze_visitor ain = object (self)
                 check_call ctor args;
                 expr.valuetype <- Some ctor.return_type
             end
-        | _ -> raise (Type_error (Alice.Ain.Type.Struct (-1), None, ASTExpression (expr)))
+        | _ -> data_type_error (Alice.Ain.Type.Struct (-1)) None (ASTExpression (expr))
         end
     | This ->
         match current_class with
@@ -403,7 +418,7 @@ class type_analyze_visitor ain = object (self)
             expr.valuetype <- Some (Alice.Ain.Type.make (Alice.Ain.Type.Struct i))
         | None ->
             (* TODO: separate error type for this? *)
-            raise (Undefined_variable ("this", ASTExpression(expr)))
+            undefined_variable_error "this" (ASTExpression(expr))
 
   method! visit_statement stmt =
     (* Create new scope if needed *)
@@ -441,19 +456,38 @@ class type_analyze_visitor ain = object (self)
         | Some f ->
             begin match f.return.data with
             | Void -> ()
-            | _ -> raise (Type_error ((jaf_to_ain_data_type f.return.data), None, ASTStatement (stmt)))
+            | _ -> data_type_error (jaf_to_ain_data_type f.return.data) None (ASTStatement (stmt))
             end
         end
     | MessageCall (_, f_name) ->
         begin match Alice.Ain.get_function ain f_name with
         | Some f ->
             if f.nr_args > 0 then
-              raise (Arity_error(f, [], ASTStatement (stmt)))
+              arity_error f [] (ASTStatement (stmt))
         | None ->
-            raise (Undefined_variable (f_name, ASTStatement (stmt)))
+            undefined_variable_error f_name (ASTStatement (stmt))
         end
-    | RefAssign (_, _) ->
-        failwith "reference assignment not yet supported"
+    | RefAssign (lhs, rhs) ->
+        (* rhs must be an lvalue in order to create a reference to it *)
+        self#check_lvalue rhs (ASTStatement (stmt));
+        (* check that lhs is a reference variable of the appropriate type *)
+        begin match lhs.node with
+        | Ident (name) ->
+            begin match env#get name with
+            | Some v ->
+                begin match v.type_spec.qualifier with
+                | Some Ref ->
+                    type_check (ASTStatement (stmt)) (unwrap lhs.valuetype).data rhs
+                | _ ->
+                    ref_type_error (unwrap rhs.valuetype).data (Some lhs) (ASTStatement (stmt))
+                end
+            | None ->
+                undefined_variable_error name (ASTStatement (stmt))
+            end
+        | _ ->
+            (* FIXME? this isn't really a _type_ error *)
+            ref_type_error (unwrap rhs.valuetype).data (Some lhs) (ASTStatement (stmt))
+        end
 
   method! visit_variable var =
     super#visit_variable var;

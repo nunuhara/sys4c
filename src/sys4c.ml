@@ -150,7 +150,7 @@ let _ =
     done
   with
   | Type_error (expected, actual, parent) ->
-      let s_expected = Alice.Ain.Type.data_to_string expected in
+      let s_expected = Alice.Ain.Type.to_string expected in
       let s_actual =
         match actual with
         | None -> "void"
