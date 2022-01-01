@@ -51,7 +51,7 @@ let func typespec name params body =
 /* logic/comparison */
 %token AND OR LT GT LTE GTE EQUAL NEQUAL
 /* unary */
-%token INC DEC BITNOT LOGNOT ADDROF
+%token INC DEC BITNOT LOGNOT
 /* assignment */
 %token ASSIGN PLUSASSIGN MINUSASSIGN TIMESASSIGN DIVIDEASSIGN MODULOASSIGN
 %token ORASSIGN XORASSIGN ANDASSIGN LSHIFTASSIGN RSHIFTASSIGN REFASSIGN
@@ -131,7 +131,7 @@ unary_operator
   | MINUS { UMinus }
   | BITNOT { BitNot }
   | LOGNOT { LogNot }
-  | ADDROF { AddrOf }
+  | BITAND { AddrOf }
   ;
 
 cast_expression
@@ -361,7 +361,7 @@ external_declaration
   | declaration_specifiers IDENTIFIER parameter_list block
     { [Function (func $1 $2 $3 $4)] }
   | FUNCTYPE declaration_specifiers IDENTIFIER functype_parameter_list SEMICOLON
-    { [FuncType (func $2 $3 $4 [])] }
+    { [FuncTypeDef (func $2 $3 $4 [])] }
   | STRUCT IDENTIFIER LBRACE struct_declaration+ RBRACE SEMICOLON
     { [StructDef ({ name=$2; decls=(List.concat $4) })] }
   | ENUM enumerator_list SEMICOLON

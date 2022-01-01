@@ -84,7 +84,7 @@ and data_type =
   | HLLParam
   | HLLFunc
   | Delegate
-  (*| Functype*)
+  | FuncType of string * int
 
 type expression = {
   mutable valuetype : Alice.Ain.Type.t option;
@@ -162,7 +162,7 @@ type enumdecl = {
 type declaration =
   | Function of fundecl
   | Global of variable
-  | FuncType of fundecl
+  | FuncTypeDef of fundecl
   | StructDef of structdecl
   | Enum of enumdecl
 
@@ -264,7 +264,7 @@ class ivisitor = object (self)
     match d with
     | Global (g) -> visit_vardecl g
     | Function (f) -> visit_fundecl f
-    | FuncType (f) -> visit_fundecl f
+    | FuncTypeDef (f) -> visit_fundecl f
     | StructDef (s) ->
         let visit_structdecl = function
           | MemberDecl (d) -> visit_vardecl d
@@ -348,6 +348,7 @@ let rec data_type_to_string = function
   | HLLParam -> "hll_param"
   | HLLFunc -> "hll_func"
   | Delegate -> "delegate"
+  | FuncType (s, _) -> s
 and type_spec_to_string ts =
   match ts.qualifier with
   | Some q -> (type_qualifier_to_string q) ^ " " ^ (data_type_to_string ts.data)
@@ -485,7 +486,7 @@ let decl_to_string d =
       let params = params_to_string d.params in
       let body = block_to_string d.body in
       sprintf "%s %s%s { %s }" return d.name params body
-  | FuncType (d) ->
+  | FuncTypeDef (d) ->
       let return = type_spec_to_string d.return in
       let params = params_to_string d.params in
       sprintf "functype %s %s%s;" return d.name params
@@ -544,6 +545,7 @@ let jaf_to_ain_data_type data =
   | HLLParam -> Alice.Ain.Type.HLLParam
   | HLLFunc -> Alice.Ain.Type.HLLFunc
   | Delegate -> failwith "delegates not yet supported"
+  | FuncType (_, i) -> Alice.Ain.Type.FuncType i
 
 let jaf_to_ain_type spec =
   let is_ref =
@@ -573,3 +575,12 @@ let jaf_to_ain_struct j_s (a_s:Alice.Ain.Struct.t) =
   a_s.members <- List.filter_map filter_members j_s.decls;
   (* TODO: vmethods *)
   a_s
+
+let jaf_to_ain_functype j_f (a_f:Alice.Ain.FunctionType.t) =
+  let jaf_to_ain_local (v:variable) =
+    Alice.Ain.Variable.make_local v.name (jaf_to_ain_type v.type_spec)
+  in
+  a_f.nr_arguments <- List.length j_f.params;
+  a_f.variables <- List.map jaf_to_ain_local j_f.params;
+  a_f.return_type <- jaf_to_ain_type j_f.return;
+  a_f

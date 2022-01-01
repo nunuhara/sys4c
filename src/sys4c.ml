@@ -25,9 +25,13 @@ class type_resolve_visitor ain = object (self)
   inherit ivisitor as super
 
   method resolve_type name =
-    match Alice.Ain.get_struct ain name with
-    | Some (obj) -> Struct (name, obj.index)
-    | None -> failwith "Undefined type"
+    match Alice.Ain.get_struct_index ain name with
+    | Some i -> Struct (name, i)
+    | None ->
+        begin match Alice.Ain.get_functype_index ain name with
+        | Some i -> FuncType (name, i)
+        | None -> failwith "Undefined type"
+        end
 
   method resolve_typespec ts =
     match ts.data with
@@ -53,7 +57,7 @@ class type_resolve_visitor ain = object (self)
       List.iter (fun v -> self#resolve_typespec v.type_spec) f.params
     in
     begin match decl with
-    | Function (f) | FuncType (f) ->
+    | Function (f) | FuncTypeDef (f) ->
         resolve_function f
     | Global (g) ->
         self#resolve_typespec g.type_spec
@@ -88,8 +92,11 @@ class type_define_visitor ain = object
         | Some (obj) -> obj |> jaf_to_ain_function f |> Alice.Ain.Function.write ain
         | None -> failwith "undefined function"
         end
-    | FuncType (_) ->
-        failwith "function types not yet supported"
+    | FuncTypeDef (f) ->
+        begin match Alice.Ain.get_functype ain f.name with
+        | Some (obj) -> obj |> jaf_to_ain_functype f |> Alice.Ain.FunctionType.write ain
+        | None -> failwith "undefined functype"
+        end
     | StructDef (s) ->
         begin match Alice.Ain.get_struct ain s.name with
         | Some (obj) -> obj |> jaf_to_ain_struct s |> Alice.Ain.Struct.write ain
@@ -115,11 +122,10 @@ class type_declare_visitor ain = object
         if Option.is_some (Alice.Ain.get_function ain f.name) then
           failwith "duplicate function definition";
         ignore (Alice.Ain.add_function ain f.name)
-    | FuncType (f) ->
+    | FuncTypeDef (f) ->
         if Option.is_some (Alice.Ain.get_functype ain f.name) then
           failwith "duplicate functype definition";
-        (* Alice.Ain.add_functype ain f.name *)
-        failwith "function types not yet supported"
+        ignore (Alice.Ain.add_functype ain f.name)
     | StructDef (s) ->
         if Option.is_some (Alice.Ain.get_struct ain s.name) then
           failwith "duplicate struct definition";

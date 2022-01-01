@@ -34,3 +34,15 @@ void _ain_struct_realloc_members(struct ain_struct *s, int nr_members)
 	s->members = xcalloc(nr_members, sizeof(struct ain_variable));
 	s->nr_members = nr_members;
 }
+
+struct ain_function_type *_ain_functype(struct ain *ain, int i)
+{
+	return (i < 0 || i >= ain->nr_function_types) ? NULL : &ain->function_types[i];
+}
+
+void _ain_functype_realloc_vars(struct ain_function_type *f, int nr_vars)
+{
+	ain_free_variables(f->variables, f->nr_variables);
+	f->variables = xcalloc(nr_vars, sizeof(struct ain_variable));
+	f->nr_variables = nr_vars;
+}

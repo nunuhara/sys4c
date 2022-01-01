@@ -237,6 +237,27 @@ class type_analyze_visitor ain = object (self)
     | New (_, _) -> ()
     | _ -> not_an_lvalue_error e parent
 
+  method check_assign parent t rhs =
+    match t with
+    (*
+     * Assigning to a functype variable is special.
+     * The RHS should be an expression like &foo, which has type
+     * 'ref function'. This is then converted into the declared
+     * functype of the variable (if the prototypes match).
+     *)
+    | Alice.Ain.Type.FuncType (ft_i) ->
+        begin match (unwrap rhs.valuetype) with
+        | { data=Alice.Ain.Type.Function (f_i); is_ref=true } ->
+            let ft = Alice.Ain.FunctionType.of_int ain ft_i in
+            let f = Alice.Ain.Function.of_int ain f_i in
+            if not (Alice.Ain.FunctionType.function_compatible ft f) then
+              data_type_error (Alice.Ain.Type.FuncType (ft_i)) (Some rhs) parent
+        | _ ->
+            ref_type_error (Alice.Ain.Type.Function (-1)) (Some rhs) parent
+        end
+    | _ ->
+        type_check parent t rhs
+
   (* XXX: needed for return type check *)
   val mutable current_function = None
   (* XXX: needed for 'this' expression *)
@@ -303,13 +324,19 @@ class type_analyze_visitor ain = object (self)
     | Unary (op, e) ->
         begin match op with
         | UPlus | UMinus | PreInc | PreDec | PostInc | PostDec ->
-            check_numeric e
+            check_numeric e;
+            expr.valuetype <- Some (unwrap e.valuetype)
         | LogNot | BitNot ->
-            check Alice.Ain.Type.Int e
+            check Alice.Ain.Type.Int e;
+            expr.valuetype <- Some (unwrap e.valuetype)
         | AddrOf ->
-            failwith "function types not yet supported"
-        end;
-        expr.valuetype <- Some (unwrap e.valuetype)
+            begin match (unwrap e.valuetype).data with
+            | Alice.Ain.Type.Function (i) ->
+                expr.valuetype <- Some (Alice.Ain.Type.make ~is_ref:true (Alice.Ain.Type.Function i))
+            | _ ->
+                data_type_error (Alice.Ain.Type.Function (-1)) (Some e) (ASTExpression (expr))
+            end
+        end
     | Binary (op, a, b) ->
         begin match op with
         | Plus | Minus | Times | Divide | LT | GT | LTE | GTE ->
@@ -336,7 +363,7 @@ class type_analyze_visitor ain = object (self)
         self#check_lvalue lhs (ASTExpression (expr));
         begin match op with
         | EqAssign ->
-            check_expr lhs rhs
+            self#check_assign (ASTExpression (expr)) (unwrap lhs.valuetype).data rhs
         | PlusAssign | MinusAssign | TimesAssign | DivideAssign ->
             check_numeric lhs;
             check_numeric rhs;
@@ -520,7 +547,7 @@ class type_analyze_visitor ain = object (self)
         env#pop;
         current_function <- None;
         current_class <- None
-    | FuncType (_) -> ()
+    | FuncTypeDef (_) -> ()
     | StructDef (_) -> ()
     | Enum (_) -> ()
 
@@ -529,7 +556,8 @@ class type_analyze_visitor ain = object (self)
     List.iter (fun e -> type_check (ASTVariable (decl)) Int e) decl.array_dim;
     (* check initval matches declared type *)
     begin match decl.initval with
-    | Some expr -> type_check (ASTVariable (decl)) (jaf_to_ain_data_type decl.type_spec.data) expr
+    | Some expr ->
+        self#check_assign (ASTVariable (decl)) (jaf_to_ain_data_type decl.type_spec.data) expr
     | None -> ()
     end;
     (* add local variable to environment *)

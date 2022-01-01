@@ -47,6 +47,73 @@ module Type = struct
     is_ref : bool;
   }
 
+  let rec equal a b =
+    let data_type_equal a b =
+      match a with
+      | Void        -> begin match b with Void        -> true | _ -> false end
+      | Int         -> begin match b with Int         -> true | _ -> false end
+      | Float       -> begin match b with Float       -> true | _ -> false end
+      | String      -> begin match b with String      -> true | _ -> false end
+      | IMainSystem -> begin match b with IMainSystem -> true | _ -> false end
+      | Bool        -> begin match b with Bool        -> true | _ -> false end
+      | LongInt     -> begin match b with LongInt     -> true | _ -> false end
+      | HLLParam    -> begin match b with HLLParam    -> true | _ -> false end
+      | IFace       -> begin match b with IFace       -> true | _ -> false end
+      | HLLFunc     -> begin match b with HLLFunc     -> true | _ -> false end
+      | IFaceWrap   -> begin match b with IFaceWrap   -> true | _ -> false end
+      | Struct i_a ->
+          begin match b with
+          | Struct i_b -> i_a == i_b
+          | _ -> false
+          end
+      | FuncType i_a ->
+          begin match b with
+          | FuncType i_b -> i_a == i_b
+          | _ -> false
+          end
+      | Delegate i_a ->
+          begin match b with
+          | Delegate i_b -> i_a == i_b
+          | _ -> false
+          end
+      | Array t_a ->
+          begin match b with
+          | Array t_b -> equal t_a t_b
+          | _ -> false
+          end
+      | Wrap t_a ->
+          begin match b with
+          | Wrap t_b -> equal t_a t_b
+          | _ -> false
+          end
+      | Option t_a ->
+          begin match b with
+          | Option t_b -> equal t_a t_b
+          | _ -> false
+          end
+      | Unknown87 t_a ->
+          begin match b with
+          | Unknown87 t_b -> equal t_a t_b
+          | _ -> false
+          end
+      | Enum2 i_a ->
+          begin match b with
+          | Enum2 i_b -> i_a == i_b
+          | _ -> false
+          end
+      | Enum i_a ->
+          begin match b with
+          | Enum i_b -> i_a == i_b
+          | _ -> false
+          end
+      | Function i_a ->
+          begin match b with
+          | Function i_b -> i_a == i_b
+          | _ -> false
+          end
+    in
+    (a.is_ref == b.is_ref) && (data_type_equal a.data b.data)
+
   let rec data_to_string = function
     | Void -> "void"
     | Int -> "int"
@@ -622,10 +689,72 @@ module FunctionType = struct
   type t = {
     index : int;
     name : string;
-    return_type : Type.t;
-    nr_arguments : int;
-    variables : Variable.t list
+    mutable return_type : Type.t;
+    mutable nr_arguments : int;
+    mutable variables : Variable.t list
   }
+
+  (* internal to Ain module *)
+  let of_ptr p i =
+    let rec vars_of_ptr p n result =
+      if n == 0 then
+        List.rev result
+      else
+        vars_of_ptr (p +@ 1) (n - 1) ((Variable.of_ptr p (List.length result))::result)
+    in
+    { index = i;
+      name = getf !@p name;
+      return_type = Type.of_ptr (addr (getf !@p return_type));
+      nr_arguments = Signed.Int32.to_int (getf !@p nr_arguments);
+      variables = vars_of_ptr (getf !@p variables) (Signed.Int32.to_int (getf !@p nr_variables)) []
+    }
+
+  (* internal to Ain module *)
+  let c_of_int = foreign "_ain_functype" (ain @-> int @-> returning (ptr_opt t_c))
+
+  (* internal to Ain module *)
+  let c_of_int_checked ain i =
+    match c_of_int ain i with
+    | None -> failwith "_ain_functype returned NULL"
+    | Some obj -> obj
+
+  (** Get a functype object by index from an ain file. *)
+  let of_int ain no =
+    of_ptr (c_of_int_checked ain no) no
+
+  (** Commit any changes to a functype object to an ain file. *)
+  let write ain f =
+    let realloc_vars =
+      foreign "_ain_functype_realloc_vars" ((ptr t_c) @-> int @->returning void)
+    in
+    let rec write_vars dst = function
+      | [] -> ()
+      | x::xs ->
+          Variable.write_ptr x dst;
+          write_vars (dst +@ 1) xs
+    in
+    let f_c = c_of_int_checked ain f.index in
+    (* XXX: name is fixed upon creation and never updated *)
+    Type.write_ptr f.return_type (addr (getf !@f_c return_type));
+    setf !@f_c nr_arguments (Signed.Int32.of_int f.nr_arguments);
+    realloc_vars f_c (List.length f.variables);
+    write_vars (getf !@f_c variables) f.variables
+
+  let function_compatible (ft:t) (f:Function.t) =
+    let take_types n vars =
+      let rec take_types_r n (vars : Variable.t list) result =
+        if n = 0 then
+          List.rev result
+        else
+          match vars with
+          | [] -> failwith "function_compatible.take_types: n > nr_vars"
+          | x::xs -> take_types_r (n - 1) xs ((x.value_type)::result)
+      in
+      take_types_r n vars []
+    in
+    (Type.equal ft.return_type f.return_type)
+    && (ft.nr_arguments == f.nr_args)
+    && (List.for_all2 Type.equal (take_types ft.nr_arguments ft.variables) (take_types f.nr_args f.vars))
 end
 
 (** Bindings for `struct ain_enum` objects. *)
@@ -674,6 +803,7 @@ let get_functype' = foreign "ain_get_functype" (ain @-> string @-> returning int
 let get_string_no' = foreign "ain_get_string_no" (ain @-> string @-> returning int)
 let add_function' = foreign "ain_add_function" (ain @-> string @-> returning int)
 let dup_function = foreign "ain_dup_function" (ain @-> int @-> returning int)
+let add_functype' = foreign "ain_add_functype" (ain @-> string @-> returning int)
 let add_global = foreign "ain_add_global" (ain @-> string @-> returning int)
 let add_initval = foreign "ain_add_initval" (ain @-> int @-> returning int)
 let add_struct' = foreign "ain_add_struct" (ain @-> string @-> returning int)
@@ -688,8 +818,10 @@ let return_option i =
 let get_enum p name = get_enum' p name |> return_option
 let get_library p name = get_library' p name |> return_option
 let get_library_function p i name = get_library_function' p i name |> return_option
-let get_functype p name = get_functype' p name |> return_option
 let get_string_no p s = get_string_no' p s |> return_option
+
+let get_functype_index p name = get_functype' p name |> return_option
+let get_struct_index p name = get_struct' p name |> return_option
 
 let ain_global = foreign "_ain_global" (ain @-> int @-> returning (ptr_opt (Variable.t_c)))
 
@@ -739,3 +871,11 @@ let get_struct p name =
 
 let add_struct p name =
   get_struct_by_index p (add_struct' p name)
+
+let get_functype p name =
+  match get_functype' p name with
+  | -1 -> None
+  | i -> Some (FunctionType.of_int p i)
+
+let add_functype p name =
+  FunctionType.of_int p (add_functype' p name)

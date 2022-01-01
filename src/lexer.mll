@@ -132,7 +132,6 @@ rule token = parse
   | ']'                     { RBRACKET }
   | '{'                     { LBRACE }
   | '}'                     { RBRACE }
-  | '&'                     { ADDROF }
   | '?'                     { QUESTION }
   | '='                     { ASSIGN }
   | "+="                    { PLUSASSIGN }
