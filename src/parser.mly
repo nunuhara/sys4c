@@ -34,7 +34,7 @@ let decls typespec var_list =
   List.map (decl typespec) var_list
 
 let func typespec name params body =
-  { name=name; return=typespec; params=params; body=body }
+  { name=name; return=typespec; params=params; body=body; class_index=None }
 
 %}
 

@@ -140,7 +140,8 @@ type fundecl = {
   name   : string;
   return : type_specifier;
   params : variable list;
-  body   : block_item list
+  body   : block_item list;
+  mutable class_index : int option
 }
 
 type struct_declaration =
@@ -172,7 +173,61 @@ type ast_node =
   | ASTVariable of variable
   | ASTDeclaration of declaration
 
+type context = {
+  ain : Alice.Ain.t;
+  mutable const_vars : variable list
+}
+
 class ivisitor = object (self)
+
+  val environment = object (self)
+    val mutable stack = []
+    val mutable variables = []
+    val mutable current_function = None
+
+    method push =
+      stack <- variables :: stack
+
+    method pop =
+      match stack with
+      | [] ->
+          failwith "visitor tried to pop root environment"
+      | prev::rest ->
+          variables <- prev;
+          stack <- rest
+
+    method push_var decl =
+      variables <- decl :: variables
+
+    method enter_function decl =
+      self#push;
+      current_function <- Some decl;
+      List.iter self#push_var decl.params
+
+    method leave_function =
+      self#pop;
+      current_function <- None
+
+    method current_function = current_function
+
+    method current_class =
+      match current_function with
+      | Some f -> f.class_index
+      | None -> None
+
+    method get name =
+      let var_eq (v : variable) = String.equal v.name name in
+      let rec search vars rest =
+        match List.find_opt var_eq vars with
+        | Some v -> Some v
+        | None ->
+            begin match rest with
+            | [] -> None
+            | prev::rest -> search prev rest
+            end
+      in
+      search variables stack
+  end
 
   method visit_expression (e : expression) =
     match e.node with
@@ -216,7 +271,9 @@ class ivisitor = object (self)
     | Expression (e) ->
         self#visit_expression e
     | Compound (items) ->
-        List.iter self#visit_block_item items
+        environment#push;
+        List.iter self#visit_block_item items;
+        environment#pop
     | Labeled (_, a) ->
         self#visit_statement a
     | If (test, cons, alt) ->
@@ -230,10 +287,12 @@ class ivisitor = object (self)
         self#visit_statement body;
         self#visit_expression test
     | For (init, test, inc, body) ->
+        environment#push;
         self#visit_block_item init;
         self#visit_expression test;
         Option.iter self#visit_expression inc;
-        self#visit_statement body
+        self#visit_statement body;
+        environment#pop
     | Goto (_) -> ()
     | Continue -> ()
     | Break -> ()
@@ -246,7 +305,8 @@ class ivisitor = object (self)
 
   method visit_variable v =
     List.iter self#visit_expression v.array_dim;
-    Option.iter self#visit_expression v.initval
+    Option.iter self#visit_expression v.initval;
+    environment#push_var v
 
   method visit_block_item item =
     match item with
@@ -263,7 +323,10 @@ class ivisitor = object (self)
     in
     match d with
     | Global (g) -> visit_vardecl g
-    | Function (f) -> visit_fundecl f
+    | Function (f) ->
+        environment#enter_function f;
+        visit_fundecl f;
+        environment#leave_function
     | FuncTypeDef (f) -> visit_fundecl f
     | StructDef (s) ->
         let visit_structdecl = function

@@ -17,6 +17,7 @@
 open Printf
 open Jaf
 open TypeAnalysis
+open ConstEval
 
 (*
  * AST pass to resolve user-defined types (struct/enum/function types).
@@ -52,12 +53,24 @@ class type_resolve_visitor ain = object (self)
     super#visit_variable decl
 
   method! visit_declaration decl =
+    let function_class (f:fundecl) =
+      match String.split_on_char '@' f.name with
+      | hd :: _ ->
+          begin match Alice.Ain.get_struct' ain hd with
+          | -1 -> None
+          | i -> Some i
+          end
+      | _ -> None
+    in
     let resolve_function f =
       self#resolve_typespec f.return;
       List.iter (fun v -> self#resolve_typespec v.type_spec) f.params
     in
     begin match decl with
-    | Function (f) | FuncTypeDef (f) ->
+    | Function (f) ->
+        resolve_function f;
+        f.class_index <- function_class f
+    | FuncTypeDef (f) ->
         resolve_function f
     | Global (g) ->
         self#resolve_typespec g.type_spec
@@ -80,26 +93,31 @@ end
 (*
  * AST pass over top-level declarations to define function/struct types.
  *)
-class type_define_visitor ain = object
+class type_define_visitor ctx = object
   inherit ivisitor
 
   method! visit_declaration decl =
     match decl with
     | Global (g) ->
-        Alice.Ain.write_global ain g.name (jaf_to_ain_type g.type_spec)
+        begin match g.type_spec.qualifier with
+        | Some Const ->
+            ctx.const_vars <- g::ctx.const_vars
+        | _ ->
+            Alice.Ain.write_global ctx.ain g.name (jaf_to_ain_type g.type_spec)
+        end
     | Function (f) ->
-        begin match Alice.Ain.get_function ain f.name with
-        | Some (obj) -> obj |> jaf_to_ain_function f |> Alice.Ain.Function.write ain
+        begin match Alice.Ain.get_function ctx.ain f.name with
+        | Some (obj) -> obj |> jaf_to_ain_function f |> Alice.Ain.Function.write ctx.ain
         | None -> failwith "undefined function"
         end
     | FuncTypeDef (f) ->
-        begin match Alice.Ain.get_functype ain f.name with
-        | Some (obj) -> obj |> jaf_to_ain_functype f |> Alice.Ain.FunctionType.write ain
+        begin match Alice.Ain.get_functype ctx.ain f.name with
+        | Some (obj) -> obj |> jaf_to_ain_functype f |> Alice.Ain.FunctionType.write ctx.ain
         | None -> failwith "undefined functype"
         end
     | StructDef (s) ->
-        begin match Alice.Ain.get_struct ain s.name with
-        | Some (obj) -> obj |> jaf_to_ain_struct s |> Alice.Ain.Struct.write ain
+        begin match Alice.Ain.get_struct ctx.ain s.name with
+        | Some (obj) -> obj |> jaf_to_ain_struct s |> Alice.Ain.Struct.write ctx.ain
         | None -> failwith "undefined struct"
         end
     | Enum (_) ->
@@ -115,9 +133,13 @@ class type_declare_visitor ain = object
   method! visit_declaration decl =
     match decl with
     | Global (g) ->
-        if Option.is_some (Alice.Ain.get_global ain g.name) then
-          failwith "duplicate global variable definition";
-        ignore (Alice.Ain.add_global ain g.name)
+        begin match g.type_spec.qualifier with
+        | Some Const -> ()
+        | _ ->
+            if Option.is_some (Alice.Ain.get_global ain g.name) then
+              failwith "duplicate global variable definition";
+            ignore (Alice.Ain.add_global ain g.name)
+        end
     | Function (f) ->
         if Option.is_some (Alice.Ain.get_function ain f.name) then
           failwith "duplicate function definition";
@@ -135,20 +157,22 @@ class type_declare_visitor ain = object
 end
 
 let _ =
-  let p = Alice.Ain.create 12 0 in
+  let ctx = { ain=(Alice.Ain.create 12 0); const_vars=[] } in
   (*let p = Alice.Ain.load "in.ain" in*)
   try
     let lexbuf = Lexing.from_channel stdin in
     while true do
       let result = Parser.main Lexer.token lexbuf in
       (* register global names in ain file *)
-      (new type_declare_visitor p)#visit_toplevel result;
+      (new type_declare_visitor ctx.ain)#visit_toplevel result;
       (* resolve type names *)
-      (new type_resolve_visitor p)#visit_toplevel result;
+      (new type_resolve_visitor ctx.ain)#visit_toplevel result;
       (* define functions and structs in ain file *)
-      (new type_define_visitor p)#visit_toplevel result;
+      (new type_define_visitor ctx)#visit_toplevel result;
       (* type check *)
-      (new type_analyze_visitor p)#visit_toplevel result;
+      (new type_analyze_visitor ctx)#visit_toplevel result;
+      (* evaluate constant expressions *)
+      (new const_eval_visitor ctx)#visit_toplevel result;
       print_string "-> ";
       List.iter (fun d -> print_string (decl_to_string d)) result;
       print_newline();
@@ -165,26 +189,34 @@ let _ =
             | None -> "untyped"
             | Some t -> Alice.Ain.Type.to_string t
       in
-      printf "Type error: expected %s; got %s\n" s_expected s_actual;
+      printf "Error: Type error: expected %s; got %s\n" s_expected s_actual;
       Option.iter (fun e -> printf "\tat: %s\n" (expr_to_string e)) actual;
       printf "\tin: %s\n" (ast_to_string parent);
-      Alice.Ain.free p;
+      Alice.Ain.free ctx.ain;
       exit 1
   | Undefined_variable (name, _) ->
-      printf "Undefined variable: %s\n" name;
-      Alice.Ain.free p;
+      printf "Error: Undefined variable: %s\n" name;
+      Alice.Ain.free ctx.ain;
       exit 1
   | Arity_error (f, args, parent) ->
       printf "Error: wrong number of arguments to function %s (expected %d; got %d)\n" f.name f.nr_args (List.length args);
       printf "\tin: %s\n" (ast_to_string parent);
-      Alice.Ain.free p;
+      Alice.Ain.free ctx.ain;
       exit 1
   | Not_lvalue_error (expr, parent) ->
       printf "Error: not an lvalue: %s\n" (expr_to_string expr);
       printf "\tin: %s\n" (ast_to_string parent);
-      Alice.Ain.free p;
+      Alice.Ain.free ctx.ain;
+      exit 1
+  | Const_error (var) ->
+      begin match var.initval with
+      | Some _ -> printf "Error: value of const variable is not constant\n"
+      | None   -> printf "Error: const variable lacks initializer\n"
+      end;
+      printf "\tin: %s\n" (var_to_string var);
+      Alice.Ain.free ctx.ain;
       exit 1
   | Lexer.Eof ->
       (* FIXME: EOF should be a token handled by the parser, not an exception *)
-      Alice.Ain.free p;
+      Alice.Ain.free ctx.ain;
       exit 0

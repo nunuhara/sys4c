@@ -47,7 +47,7 @@ TODO
 - [x] Parser
 - [x] Toplevel declaration analysis
 - [x] Type analysis
-- [ ] Constant expression evaluation
+- [x] Constant expression evaluation
 - [ ] Variable allocation
 - [ ] Compilation
 - [ ] Separate compilation & linking (maybe?)

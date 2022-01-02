@@ -6,8 +6,8 @@ open Ctypes
 open Foreign
 open Printf
 
-type ain = unit ptr
-let ain : ain typ = ptr void
+type t = unit ptr
+let ain_ptr : t typ = ptr void
 
 (** Bindings for `struct ain_type` objects *)
 module Type = struct
@@ -442,7 +442,7 @@ module Function = struct
     }
 
   (* internal to Ain module *)
-  let c_of_int = foreign "_ain_function" (ain @-> int @-> returning (ptr_opt t_c))
+  let c_of_int = foreign "_ain_function" (ain_ptr @-> int @-> returning (ptr_opt t_c))
 
   (* internal to Ain module *)
   let c_of_int_checked ain i =
@@ -573,7 +573,7 @@ module Struct = struct
     }
 
   (* internal to Ain module *)
-  let c_of_int = foreign "_ain_struct" (ain @-> int @-> returning (ptr_opt t_c))
+  let c_of_int = foreign "_ain_struct" (ain_ptr @-> int @-> returning (ptr_opt t_c))
 
   (* internal to Ain module *)
   let c_of_int_checked ain i =
@@ -710,7 +710,7 @@ module FunctionType = struct
     }
 
   (* internal to Ain module *)
-  let c_of_int = foreign "_ain_functype" (ain @-> int @-> returning (ptr_opt t_c))
+  let c_of_int = foreign "_ain_functype" (ain_ptr @-> int @-> returning (ptr_opt t_c))
 
   (* internal to Ain module *)
   let c_of_int_checked ain i =
@@ -778,7 +778,7 @@ exception Unrecognized_format
 exception Invalid_format
 
 let load name =
-  let ain_open = foreign "ain_open" (string @-> ptr int @-> returning ain) in
+  let ain_open = foreign "ain_open" (string @-> ptr int @-> returning ain_ptr) in
   let err = allocate int 0 in
   let ainp = ain_open name err in
   begin match !@err with
@@ -790,27 +790,27 @@ let load name =
   end;
   ainp
 
-let create = foreign "ain_new" (int @-> int @-> returning ain)
-let free = foreign "ain_free" (ain @-> returning void)
-let get_function' = foreign "ain_get_function" (ain @-> string @-> returning int)
-let get_global' = foreign "ain_get_global" (ain @-> string @-> returning int)
-let get_struct' = foreign "ain_get_struct" (ain @-> string @-> returning int)
-let get_enum' = foreign "ain_get_enum" (ain @-> string @-> returning int)
-let get_library' = foreign "ain_get_library" (ain @-> string @-> returning int)
+let create = foreign "ain_new" (int @-> int @-> returning ain_ptr)
+let free = foreign "ain_free" (ain_ptr @-> returning void)
+let get_function' = foreign "ain_get_function" (ain_ptr @-> string @-> returning int)
+let get_global' = foreign "ain_get_global" (ain_ptr @-> string @-> returning int)
+let get_struct' = foreign "ain_get_struct" (ain_ptr @-> string @-> returning int)
+let get_enum' = foreign "ain_get_enum" (ain_ptr @-> string @-> returning int)
+let get_library' = foreign "ain_get_library" (ain_ptr @-> string @-> returning int)
 let get_library_function' =
-  foreign "ain_get_library_function" (ain @-> int @-> string @-> returning int)
-let get_functype' = foreign "ain_get_functype" (ain @-> string @-> returning int)
-let get_string_no' = foreign "ain_get_string_no" (ain @-> string @-> returning int)
-let add_function' = foreign "ain_add_function" (ain @-> string @-> returning int)
-let dup_function = foreign "ain_dup_function" (ain @-> int @-> returning int)
-let add_functype' = foreign "ain_add_functype" (ain @-> string @-> returning int)
-let add_global = foreign "ain_add_global" (ain @-> string @-> returning int)
-let add_initval = foreign "ain_add_initval" (ain @-> int @-> returning int)
-let add_struct' = foreign "ain_add_struct" (ain @-> string @-> returning int)
-let add_library = foreign "ain_add_library" (ain @-> string @-> returning int)
-let add_string = foreign "ain_add_string" (ain @-> string @-> returning int)
-let add_message = foreign "ain_add_message" (ain @-> string @-> returning int)
-let add_file = foreign "ain_add_file" (ain @-> string @-> returning int)
+  foreign "ain_get_library_function" (ain_ptr @-> int @-> string @-> returning int)
+let get_functype' = foreign "ain_get_functype" (ain_ptr @-> string @-> returning int)
+let get_string_no' = foreign "ain_get_string_no" (ain_ptr @-> string @-> returning int)
+let add_function' = foreign "ain_add_function" (ain_ptr @-> string @-> returning int)
+let dup_function = foreign "ain_dup_function" (ain_ptr @-> int @-> returning int)
+let add_functype' = foreign "ain_add_functype" (ain_ptr @-> string @-> returning int)
+let add_global = foreign "ain_add_global" (ain_ptr @-> string @-> returning int)
+let add_initval = foreign "ain_add_initval" (ain_ptr @-> int @-> returning int)
+let add_struct' = foreign "ain_add_struct" (ain_ptr @-> string @-> returning int)
+let add_library = foreign "ain_add_library" (ain_ptr @-> string @-> returning int)
+let add_string = foreign "ain_add_string" (ain_ptr @-> string @-> returning int)
+let add_message = foreign "ain_add_message" (ain_ptr @-> string @-> returning int)
+let add_file = foreign "ain_add_file" (ain_ptr @-> string @-> returning int)
 
 let return_option i =
   if i < 0 then None else Some i
@@ -823,7 +823,7 @@ let get_string_no p s = get_string_no' p s |> return_option
 let get_functype_index p name = get_functype' p name |> return_option
 let get_struct_index p name = get_struct' p name |> return_option
 
-let ain_global = foreign "_ain_global" (ain @-> int @-> returning (ptr_opt (Variable.t_c)))
+let ain_global = foreign "_ain_global" (ain_ptr @-> int @-> returning (ptr_opt (Variable.t_c)))
 
 let get_global p name =
   match get_global' p name with

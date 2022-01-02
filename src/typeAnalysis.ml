@@ -185,44 +185,8 @@ let unwrap valuetype =
   | None -> failwith "type-checker: valuetype is None"
   | Some vt -> vt
 
-class type_analyze_visitor ain = object (self)
+class type_analyze_visitor ctx = object (self)
   inherit ivisitor as super
-
-  (*
-   * Lexical environment stack. push/pop should be called when entering and
-   * exiting a scope.
-   *)
-  val env = object
-    val mutable stack = []
-    val mutable variables = []
-
-    method push =
-      stack <- variables :: stack
-
-    method pop =
-      match stack with
-      | [] ->
-          failwith "tried to pop root environment"
-      | prev::rest ->
-          variables <- prev;
-          stack <- rest
-
-    method push_var decl =
-      variables <- decl :: variables
-
-    method get name =
-      let var_eq (v : variable) = String.equal v.name name in
-      let rec search vars rest =
-        match List.find_opt var_eq vars with
-        | Some v -> Some v
-        | None ->
-            begin match rest with
-            | [] -> None
-            | prev::rest -> search prev rest
-            end
-      in
-      search variables stack
-  end
 
   (* an lvalue is an expression which denotes a location that can be assigned to/referenced *)
   method check_lvalue (e:expression) (parent:ast_node) =
@@ -248,8 +212,8 @@ class type_analyze_visitor ain = object (self)
     | Alice.Ain.Type.FuncType (ft_i) ->
         begin match (unwrap rhs.valuetype) with
         | { data=Alice.Ain.Type.Function (f_i); is_ref=true } ->
-            let ft = Alice.Ain.FunctionType.of_int ain ft_i in
-            let f = Alice.Ain.Function.of_int ain f_i in
+            let ft = Alice.Ain.FunctionType.of_int ctx.ain ft_i in
+            let f = Alice.Ain.Function.of_int ctx.ain f_i in
             if not (Alice.Ain.FunctionType.function_compatible ft f) then
               data_type_error (Alice.Ain.Type.FuncType (ft_i)) (Some rhs) parent
         | _ ->
@@ -257,11 +221,6 @@ class type_analyze_visitor ain = object (self)
         end
     | _ ->
         type_check parent t rhs
-
-  (* XXX: needed for return type check *)
-  val mutable current_function = None
-  (* XXX: needed for 'this' expression *)
-  val mutable current_class = None
 
   method! visit_expression expr =
     super#visit_expression expr;
@@ -305,15 +264,24 @@ class type_analyze_visitor ain = object (self)
     | ConstString (_) ->
         expr.valuetype <- Some (Alice.Ain.Type.make Alice.Ain.Type.String)
     | Ident (name) ->
-        begin match env#get name with
+        let get_var name =
+          match environment#get name with
+          | Some v -> Some v
+          | None ->
+              begin match List.find_opt (fun (v:variable) -> v.name = name) ctx.const_vars with
+              | Some v -> Some v
+              | None -> None
+              end
+        in
+        begin match get_var name with
         | Some v ->
             set_valuetype { data=v.type_spec.data; qualifier=None }
         | None ->
-            begin match Alice.Ain.get_global ain name with
+            begin match Alice.Ain.get_global ctx.ain name with
             | Some g ->
                 expr.valuetype <- Some g.value_type
             | None ->
-                begin match Alice.Ain.get_function ain name with
+                begin match Alice.Ain.get_function ctx.ain name with
                 | Some f ->
                     expr.valuetype <- Some (Alice.Ain.Type.make (Alice.Ain.Type.Function f.index))
                 | None ->
@@ -396,7 +364,7 @@ class type_analyze_visitor ain = object (self)
             data_type_error (jaf_to_ain_data_type expected) (Some obj) (ASTExpression (expr))
         end
     | Member (obj, member_name) ->
-        let struc = Alice.Ain.get_struct_by_index ain (check_struct obj) in
+        let struc = Alice.Ain.get_struct_by_index ctx.ain (check_struct obj) in
         let check_member (m : Alice.Ain.Variable.t) =
           String.equal m.name member_name
         in
@@ -405,7 +373,7 @@ class type_analyze_visitor ain = object (self)
             expr.valuetype <- Some member.value_type
         | None ->
             let fun_name = struc.name ^ "@" ^ member_name in
-            begin match Alice.Ain.get_function ain fun_name with
+            begin match Alice.Ain.get_function ctx.ain fun_name with
             | Some f ->
                 expr.valuetype <- Some (Alice.Ain.Type.make (Alice.Ain.Type.Function f.index))
             | None ->
@@ -416,7 +384,7 @@ class type_analyze_visitor ain = object (self)
     | Call (fn, args) ->
         begin match (unwrap fn.valuetype).data with
         | Alice.Ain.Type.Function (no) ->
-            let f = Alice.Ain.Function.of_int ain no in
+            let f = Alice.Ain.Function.of_int ctx.ain no in
             check_call f args;
             expr.valuetype <- Some f.return_type
         | _ ->
@@ -426,21 +394,21 @@ class type_analyze_visitor ain = object (self)
         begin match t with
         | Struct (_, i) ->
             (* TODO: look up the correct constructor for given arguments *)
-            begin match (Alice.Ain.Struct.of_int ain i).constructor with
+            begin match (Alice.Ain.Struct.of_int ctx.ain i).constructor with
             | -1 ->
                 if (List.length args) != 0 then
                   (* TODO: signal error properly here *)
                   failwith "arguments provided to default constructor";
                 set_valuetype { data=t; qualifier=None }
             | no ->
-                let ctor = Alice.Ain.Function.of_int ain no in
+                let ctor = Alice.Ain.Function.of_int ctx.ain no in
                 check_call ctor args;
                 expr.valuetype <- Some ctor.return_type
             end
         | _ -> data_type_error (Alice.Ain.Type.Struct (-1)) None (ASTExpression (expr))
         end
     | This ->
-        match current_class with
+        match environment#current_class with
         | Some i ->
             expr.valuetype <- Some (Alice.Ain.Type.make (Alice.Ain.Type.Struct i))
         | None ->
@@ -448,37 +416,26 @@ class type_analyze_visitor ain = object (self)
             undefined_variable_error "this" (ASTExpression(expr))
 
   method! visit_statement stmt =
-    (* Create new scope if needed *)
-    begin match stmt.node with
-    | Compound (_) ->
-        env#push
-    | For (Declarations (decls), _, _, _) ->
-        env#push;
-        List.iter env#push_var decls
-    | _ -> ()
-    end;
     super#visit_statement stmt;
     match stmt.node with
     | EmptyStatement -> ()
     | Expression (_) -> ()
-    | Compound (_) ->
-        env#pop
+    | Compound (_) -> ()
     | Labeled (_, _) -> ()
     | If (test, _, _) | While (test, _) | DoWhile (test, _) ->
         type_check (ASTStatement (stmt)) Int test
     | For (_, test, _, _) ->
-        env#pop;
         type_check (ASTStatement (stmt)) Int test
     | Goto (_) -> ()
     | Continue -> ()
     | Break -> ()
     | Return (Some e) ->
-        begin match current_function with
+        begin match environment#current_function with
         | None -> failwith "return statement outside of function"
         | Some f -> type_check (ASTStatement (stmt)) (jaf_to_ain_data_type f.return.data) e
         end
     | Return (None) ->
-        begin match current_function with
+        begin match environment#current_function with
         | None -> failwith "return statement outside of function"
         | Some f ->
             begin match f.return.data with
@@ -487,7 +444,7 @@ class type_analyze_visitor ain = object (self)
             end
         end
     | MessageCall (_, f_name) ->
-        begin match Alice.Ain.get_function ain f_name with
+        begin match Alice.Ain.get_function ctx.ain f_name with
         | Some f ->
             if f.nr_args > 0 then
               arity_error f [] (ASTStatement (stmt))
@@ -500,7 +457,7 @@ class type_analyze_visitor ain = object (self)
         (* check that lhs is a reference variable of the appropriate type *)
         begin match lhs.node with
         | Ident (name) ->
-            begin match env#get name with
+            begin match environment#get name with
             | Some v ->
                 begin match v.type_spec.qualifier with
                 | Some Ref ->
@@ -518,49 +475,12 @@ class type_analyze_visitor ain = object (self)
 
   method! visit_variable var =
     super#visit_variable var;
-    self#check_variable var
-
-  method! visit_declaration decl =
-    let function_class (f:fundecl) =
-      match String.split_on_char '@' f.name with
-      | hd :: _ ->
-          begin match Alice.Ain.get_struct' ain hd with
-          | -1 -> None
-          | i -> Some i
-          end
-      | _ -> None
-    in
-    (* Create new scope if needed *)
-    begin match decl with
-    | Function (f) ->
-        env#push;
-        current_function <- Some f;
-        current_class <- function_class f;
-        List.iter env#push_var f.params
-    | _ -> ()
-    end;
-    super#visit_declaration decl;
-    match decl with
-    | Global (g) ->
-        self#check_variable g
-    | Function (_) ->
-        env#pop;
-        current_function <- None;
-        current_class <- None
-    | FuncTypeDef (_) -> ()
-    | StructDef (_) -> ()
-    | Enum (_) -> ()
-
-  method check_variable decl =
     (* check that array dims are integers *)
-    List.iter (fun e -> type_check (ASTVariable (decl)) Int e) decl.array_dim;
+    List.iter (fun e -> type_check (ASTVariable (var)) Int e) var.array_dim;
     (* check initval matches declared type *)
-    begin match decl.initval with
+    begin match var.initval with
     | Some expr ->
-        self#check_assign (ASTVariable (decl)) (jaf_to_ain_data_type decl.type_spec.data) expr
+        self#check_assign (ASTVariable (var)) (jaf_to_ain_data_type var.type_spec.data) expr
     | None -> ()
-    end;
-    (* add local variable to environment *)
-    env#push_var decl
-
+    end
 end
