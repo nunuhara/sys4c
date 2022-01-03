@@ -93,7 +93,7 @@ class const_eval_visitor ctx = object (self)
     | ConstFloat _ -> ()
     | ConstChar _ -> ()
     | ConstString _ -> ()
-    | Ident name ->
+    | Ident (name, _) ->
         let get_var name =
           match environment#get name with
           | Some v -> Some v
@@ -191,7 +191,7 @@ class const_eval_visitor ctx = object (self)
     | Subscript (_, _) -> ()
     | Member (_, _) -> ()
     | Call (_, _) -> ()
-    | New (_, _) -> ()
+    | New (_, _, _) -> ()
     | This -> ()
 
   method! visit_toplevel decls =
@@ -225,8 +225,8 @@ class const_eval_visitor ctx = object (self)
         end
     | _ -> ()
 
-  method! visit_variable v =
-    super#visit_variable v;
+  method! visit_local_variable v =
+    super#visit_local_variable v;
     self#check_vardecl v
 
   method! visit_declaration d =

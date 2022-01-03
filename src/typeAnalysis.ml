@@ -195,10 +195,10 @@ class type_analyze_visitor ctx = object (self)
       | _ -> ()
     in
     match e.node with
-    | Ident (_) -> check_lvalue_type (unwrap e.valuetype).data
+    | Ident (_, _) -> check_lvalue_type (unwrap e.valuetype).data
     | Member (_, _) -> check_lvalue_type (unwrap e.valuetype).data
     | Subscript (_, _) -> ()
-    | New (_, _) -> ()
+    | New (_, _, _) -> ()
     | _ -> not_an_lvalue_error e parent
 
   method check_assign parent t rhs =
@@ -263,29 +263,29 @@ class type_analyze_visitor ctx = object (self)
     | ConstChar (_) -> ()
     | ConstString (_) ->
         expr.valuetype <- Some (Alice.Ain.Type.make Alice.Ain.Type.String)
-    | Ident (name) ->
-        let get_var name =
-          match environment#get name with
-          | Some v -> Some v
-          | None ->
-              begin match List.find_opt (fun (v:variable) -> v.name = name) ctx.const_vars with
-              | Some v -> Some v
-              | None -> None
-              end
-        in
-        begin match get_var name with
+    | Ident (name, _) ->
+        begin match environment#get name with
         | Some v ->
+            expr.node <- Ident (name, Some (LocalVariable (-1)));
             set_valuetype { data=v.type_spec.data; qualifier=None }
         | None ->
-            begin match Alice.Ain.get_global ctx.ain name with
-            | Some g ->
-                expr.valuetype <- Some g.value_type
+            begin match List.find_opt (fun (v:variable) -> v.name = name) ctx.const_vars with
+            | Some v ->
+                expr.node <- Ident (name, Some GlobalConstant);
+                set_valuetype { data=v.type_spec.data; qualifier=None }
             | None ->
-                begin match Alice.Ain.get_function ctx.ain name with
-                | Some f ->
-                    expr.valuetype <- Some (Alice.Ain.Type.make (Alice.Ain.Type.Function f.index))
+                begin match Alice.Ain.get_global ctx.ain name with
+                | Some g ->
+                    expr.node <- Ident (name, Some (GlobalVariable (g.index)));
+                    expr.valuetype <- Some g.value_type
                 | None ->
-                    undefined_variable_error name (ASTExpression (expr))
+                    begin match Alice.Ain.get_function ctx.ain name with
+                    | Some f ->
+                        expr.node <- Ident (name, Some (FunctionName (f.index)));
+                        expr.valuetype <- Some (Alice.Ain.Type.make (Alice.Ain.Type.Function f.index))
+                    | None ->
+                        undefined_variable_error name (ASTExpression (expr))
+                    end
                 end
             end
         end
@@ -390,7 +390,7 @@ class type_analyze_visitor ctx = object (self)
         | _ ->
             data_type_error (Alice.Ain.Type.Function (-1)) (Some fn) (ASTExpression (expr))
         end
-    | New (t, args) ->
+    | New (t, args, _) ->
         begin match t with
         | Struct (_, i) ->
             (* TODO: look up the correct constructor for given arguments *)
@@ -456,7 +456,7 @@ class type_analyze_visitor ctx = object (self)
         self#check_lvalue rhs (ASTStatement (stmt));
         (* check that lhs is a reference variable of the appropriate type *)
         begin match lhs.node with
-        | Ident (name) ->
+        | Ident (name, _) ->
             begin match environment#get name with
             | Some v ->
                 begin match v.type_spec.qualifier with
@@ -473,8 +473,8 @@ class type_analyze_visitor ctx = object (self)
             ref_type_error (unwrap rhs.valuetype).data (Some lhs) (ASTStatement (stmt))
         end
 
-  method! visit_variable var =
-    super#visit_variable var;
+  method! visit_local_variable var =
+    super#visit_local_variable var;
     (* check that array dims are integers *)
     List.iter (fun e -> type_check (ASTVariable (var)) Int e) var.array_dim;
     (* check initval matches declared type *)

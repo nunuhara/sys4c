@@ -81,7 +81,7 @@ main
   ;
 
 primary_expression
-  : IDENTIFIER { expr (Ident ($1)) }
+  : IDENTIFIER { expr (Ident ($1, None)) }
   | THIS { expr This }
   | constant { expr $1 }
   | string { expr $1 }
@@ -111,7 +111,7 @@ postfix_expression
   | postfix_expression LBRACKET expression RBRACKET { expr (Subscript ($1, $3)) }
   | atomic_type_specifier LPAREN expression RPAREN { expr (Cast ($1, $3)) }
   | postfix_expression arglist { expr (Call ($1, $2)) }
-  | NEW IDENTIFIER arglist { expr (New (Unresolved ($2), $3)) }
+  | NEW IDENTIFIER arglist { expr (New (Unresolved ($2), $3, None)) }
   | postfix_expression DOT IDENTIFIER { expr (Member ($1, $3)) }
   | postfix_expression INC { expr (Unary (PostInc, $1)) }
   | postfix_expression DEC { expr (Unary (PostDec, $1)) }

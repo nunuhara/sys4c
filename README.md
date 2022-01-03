@@ -48,6 +48,6 @@ TODO
 - [x] Toplevel declaration analysis
 - [x] Type analysis
 - [x] Constant expression evaluation
-- [ ] Variable allocation
+- [x] Variable allocation
 - [ ] Compilation
 - [ ] Separate compilation & linking (maybe?)

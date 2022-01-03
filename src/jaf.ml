@@ -86,6 +86,13 @@ and data_type =
   | Delegate
   | FuncType of string * int
 
+type ident_type =
+  | LocalVariable of int
+  | GlobalVariable of int
+  | GlobalConstant
+  | FunctionName of int
+  | HLLName of int
+
 type expression = {
   mutable valuetype : Alice.Ain.Type.t option;
   mutable node : ast_expression
@@ -95,7 +102,7 @@ and ast_expression =
   | ConstFloat  of float
   | ConstChar   of string
   | ConstString of string
-  | Ident       of string
+  | Ident       of string     * ident_type option
   | Unary       of unary_op   * expression
   | Binary      of binary_op  * expression      * expression
   | Assign      of assign_op  * expression      * expression
@@ -105,7 +112,7 @@ and ast_expression =
   | Subscript   of expression * expression
   | Member      of expression * string
   | Call        of expression * expression list
-  | New         of data_type  * expression list
+  | New         of data_type  * expression list * int option
   | This
 
 type block_item =
@@ -235,7 +242,7 @@ class ivisitor = object (self)
     | ConstFloat (_) -> ()
     | ConstChar (_) -> ()
     | ConstString (_) -> ()
-    | Ident (_) -> ()
+    | Ident (_, _) -> ()
     | Unary (_, e) ->
         self#visit_expression e
     | Binary (_, lhs, rhs) ->
@@ -261,7 +268,7 @@ class ivisitor = object (self)
     | Call (f, args) ->
         self#visit_expression f;
         List.iter self#visit_expression args
-    | New (_, args) ->
+    | New (_, args, _) ->
         List.iter self#visit_expression args
     | This -> ()
 
@@ -303,7 +310,7 @@ class ivisitor = object (self)
         self#visit_expression a;
         self#visit_expression b
 
-  method visit_variable v =
+  method visit_local_variable v =
     List.iter self#visit_expression v.array_dim;
     Option.iter self#visit_expression v.initval;
     environment#push_var v
@@ -311,29 +318,29 @@ class ivisitor = object (self)
   method visit_block_item item =
     match item with
     | Statement (s) -> self#visit_statement s
-    | Declarations (ds) -> List.iter self#visit_variable ds
+    | Declarations (ds) -> List.iter self#visit_local_variable ds
+
+  method visit_fundecl f =
+    List.iter self#visit_block_item f.body
 
   method visit_declaration d =
     let visit_vardecl d =
       List.iter self#visit_expression d.array_dim;
       Option.iter self#visit_expression d.initval
     in
-    let visit_fundecl d =
-      List.iter self#visit_block_item d.body
-    in
     match d with
     | Global (g) -> visit_vardecl g
     | Function (f) ->
         environment#enter_function f;
-        visit_fundecl f;
+        self#visit_fundecl f;
         environment#leave_function
-    | FuncTypeDef (f) -> visit_fundecl f
+    | FuncTypeDef (_) -> ()
     | StructDef (s) ->
         let visit_structdecl = function
           | MemberDecl (d) -> visit_vardecl d
-          | Constructor (f) -> visit_fundecl f
-          | Destructor (f) -> visit_fundecl f
-          | Method (f) -> visit_fundecl f
+          | Constructor (f) -> self#visit_fundecl f
+          | Destructor (f) -> self#visit_fundecl f
+          | Method (f) -> self#visit_fundecl f
         in
         List.iter visit_structdecl s.decls
     | Enum (enum) ->
@@ -417,8 +424,6 @@ and type_spec_to_string ts =
   | Some q -> (type_qualifier_to_string q) ^ " " ^ (data_type_to_string ts.data)
   | None -> (data_type_to_string ts.data)
 
-
-
 let rec expr_to_string (e : expression) =
   let arglist_to_string = function
     | [] -> "()"
@@ -438,7 +443,7 @@ let rec expr_to_string (e : expression) =
       sprintf "'%s'" s
   | ConstString (s) ->
       sprintf "\"%s\"" s
-  | Ident (s) ->
+  | Ident (s, _) ->
       s
   | Unary (op, e) ->
       begin match op with
@@ -461,7 +466,7 @@ let rec expr_to_string (e : expression) =
       sprintf "%s.%s" (expr_to_string e) s
   | Call (f, args) ->
       sprintf "%s%s" (expr_to_string f) (arglist_to_string args)
-  | New (t, args) ->
+  | New (t, args, _) ->
       sprintf "new %s%s" (data_type_to_string t) (arglist_to_string args)
   | This ->
       "this"

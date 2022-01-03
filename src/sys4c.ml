@@ -18,6 +18,7 @@ open Printf
 open Jaf
 open TypeAnalysis
 open ConstEval
+open VariableAlloc
 
 (*
  * AST pass to resolve user-defined types (struct/enum/function types).
@@ -42,15 +43,15 @@ class type_resolve_visitor ain = object (self)
 
   method! visit_expression expr =
     begin match expr.node with
-    | New (Unresolved (t), e) ->
-        expr.node <- New (self#resolve_type t, e)
+    | New (Unresolved (t), e, _) ->
+        expr.node <- New (self#resolve_type t, e, None)
     | _ -> ()
     end;
     super#visit_expression expr
 
-  method! visit_variable decl =
+  method! visit_local_variable decl =
     self#resolve_typespec decl.type_spec;
-    super#visit_variable decl
+    super#visit_local_variable decl
 
   method! visit_declaration decl =
     let function_class (f:fundecl) =
@@ -173,6 +174,8 @@ let _ =
       (new type_analyze_visitor ctx)#visit_toplevel result;
       (* evaluate constant expressions *)
       (new const_eval_visitor ctx)#visit_toplevel result;
+      (* allocate function variables *)
+      (new variable_alloc_visitor ctx)#visit_toplevel result;
       print_string "-> ";
       List.iter (fun d -> print_string (decl_to_string d)) result;
       print_newline();
