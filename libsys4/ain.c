@@ -1,5 +1,7 @@
+#include <string.h>
 #include "libsys4/include/system4.h"
 #include "libsys4/include/system4/ain.h"
+#include "libsys4/include/system4/buffer.h"
 
 /*
  * XXX: Private API for bindings internal use. Client code should never
@@ -45,4 +47,26 @@ void _ain_functype_realloc_vars(struct ain_function_type *f, int nr_vars)
 	ain_free_variables(f->variables, f->nr_variables);
 	f->variables = xcalloc(nr_vars, sizeof(struct ain_variable));
 	f->nr_variables = nr_vars;
+}
+
+int _ain_version(struct ain *ain)
+{
+	return ain->version;
+}
+
+int _ain_minor_version(struct ain *ain)
+{
+	return ain->minor_version;
+}
+
+bool _ain_version_gte(struct ain *ain, int major, int minor)
+{
+	return AIN_VERSION_GTE(ain, major, minor);
+}
+
+void _ain_append_bytecode(struct ain *ain, struct buffer *b)
+{
+	ain->code = xrealloc(ain->code, ain->code_size + b->index);
+	memcpy(ain->code + ain->code_size, b->buf, b->index);
+	ain->code_size += b->index;
 }

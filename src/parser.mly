@@ -28,13 +28,13 @@ let stmt ast =
   { node=ast }
 
 let decl typespec ((name, dims), init) =
-  { name=name; array_dim=dims; type_spec=typespec; initval=init } 
+  { name=name; array_dim=dims; type_spec=typespec; initval=init; index=None }
 
 let decls typespec var_list =
   List.map (decl typespec) var_list
 
 let func typespec name params body =
-  { name=name; return=typespec; params=params; body=body; class_index=None }
+  { name=name; return=typespec; params=params; body=body; index=None; class_index=None }
 
 %}
 

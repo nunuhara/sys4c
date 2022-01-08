@@ -19,6 +19,8 @@ open Jaf
 open TypeAnalysis
 open ConstEval
 open VariableAlloc
+open SanityCheck
+open Compiler
 
 (*
  * AST pass to resolve user-defined types (struct/enum/function types).
@@ -139,12 +141,12 @@ class type_declare_visitor ain = object
         | _ ->
             if Option.is_some (Alice.Ain.get_global ain g.name) then
               failwith "duplicate global variable definition";
-            ignore (Alice.Ain.add_global ain g.name)
+            g.index <- Some (Alice.Ain.add_global ain g.name)
         end
     | Function (f) ->
         if Option.is_some (Alice.Ain.get_function ain f.name) then
           failwith "duplicate function definition";
-        ignore (Alice.Ain.add_function ain f.name)
+        f.index <- Some (Alice.Ain.add_function ain f.name).index
     | FuncTypeDef (f) ->
         if Option.is_some (Alice.Ain.get_functype ain f.name) then
           failwith "duplicate functype definition";
@@ -159,7 +161,7 @@ end
 
 let _ =
   let ctx = { ain=(Alice.Ain.create 12 0); const_vars=[] } in
-  (*let p = Alice.Ain.load "in.ain" in*)
+  (* let ctx = { ain=(Alice.Ain.load "in.ain"); const_vars = [] } in *)
   try
     let lexbuf = Lexing.from_channel stdin in
     while true do
@@ -176,6 +178,10 @@ let _ =
       (new const_eval_visitor ctx)#visit_toplevel result;
       (* allocate function variables *)
       (new variable_alloc_visitor ctx)#visit_toplevel result;
+      (* check invariants (TODO: disable on release builds) *)
+      (new sanity_check_visitor)#visit_toplevel result;
+      (* compile *)
+      (new jaf_compiler ctx.ain)#compile result;
       print_string "-> ";
       List.iter (fun d -> print_string (decl_to_string d)) result;
       print_newline();
@@ -220,6 +226,7 @@ let _ =
       Alice.Ain.free ctx.ain;
       exit 1
   | Lexer.Eof ->
+      Alice.Ain.write ctx.ain "out.ain";
       (* FIXME: EOF should be a token handled by the parser, not an exception *)
       Alice.Ain.free ctx.ain;
       exit 0

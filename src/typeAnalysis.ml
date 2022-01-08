@@ -399,12 +399,11 @@ class type_analyze_visitor ctx = object (self)
                 if (List.length args) != 0 then
                   (* TODO: signal error properly here *)
                   failwith "arguments provided to default constructor";
-                set_valuetype { data=t; qualifier=None }
             | no ->
                 let ctor = Alice.Ain.Function.of_int ctx.ain no in
                 check_call ctor args;
-                expr.valuetype <- Some ctor.return_type
-            end
+            end;
+            set_valuetype { data=t; qualifier=None }
         | _ -> data_type_error (Alice.Ain.Type.Struct (-1)) None (ASTExpression (expr))
         end
     | This ->

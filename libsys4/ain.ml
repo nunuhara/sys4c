@@ -1,6 +1,7 @@
 (* XXX: Work around braindamage in dune/ctypes (force linking of ain.o) *)
 external strangle_linker : unit -> unit = "ain_new"
 external strangle_dune : unit -> unit = "_ain_global"
+external strangle_dune2 : unit -> unit = "ain_write"
 
 open Ctypes
 open Foreign
@@ -823,25 +824,26 @@ let get_string_no p s = get_string_no' p s |> return_option
 let get_functype_index p name = get_functype' p name |> return_option
 let get_struct_index p name = get_struct' p name |> return_option
 
-let ain_global = foreign "_ain_global" (ain_ptr @-> int @-> returning (ptr_opt (Variable.t_c)))
+let get_c_global_by_index p i =
+  let ain_global = foreign "_ain_global" (ain_ptr @-> int @-> returning (ptr_opt (Variable.t_c))) in
+  match ain_global p i with
+  | None -> failwith "_ain_global returned NULL"
+  | Some obj -> obj
+
+let get_global_by_index p i =
+  Variable.of_ptr (get_c_global_by_index p i) i
 
 let get_global p name =
   match get_global' p name with
   | -1 -> None
-  | i ->
-      begin match ain_global p i with
-      | None -> failwith "_ain_global returned NULL"
-      | Some obj -> Some (Variable.of_ptr obj i)
-      end
+  | i  -> Some (get_global_by_index p i)
 
 let write_global p name t =
   match get_global' p name with
   | -1 -> failwith "global not defined in ain file"
   | i ->
-      begin match ain_global p i with
-      | None -> failwith "_ain_global returned NULL"
-      | Some g -> Type.write_ptr t (addr (getf (!@ g) Variable.value_type))
-      end
+      let g = get_c_global_by_index p i in
+      Type.write_ptr t (addr (getf (!@ g) Variable.value_type))
 
 let get_function_by_index p no =
   match Function.c_of_int p no with
@@ -879,3 +881,13 @@ let get_functype p name =
 
 let add_functype p name =
   FunctionType.of_int p (add_functype' p name)
+
+let version = foreign "_ain_version" (ain_ptr @-> returning int)
+let minor_version = foreign "_ain_minor_version" (ain_ptr @-> returning int)
+let version_gte = foreign "_ain_version_gte" (ain_ptr @-> int @-> int @-> returning bool)
+
+let append_bytecode = foreign "_ain_append_bytecode" (ain_ptr @-> Buffer.buffer_ptr @-> returning void)
+
+let write p filename =
+  let write' = foreign "ain_write" (string @-> ain_ptr @-> returning void) in
+  write' filename p

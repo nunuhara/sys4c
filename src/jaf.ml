@@ -140,7 +140,8 @@ and variable = {
   name      : string;
   array_dim : expression list;
   type_spec : type_specifier;
-  initval   : expression option
+  initval   : expression option;
+  mutable index : int option
 }
 
 type fundecl = {
@@ -148,6 +149,7 @@ type fundecl = {
   return : type_specifier;
   params : variable list;
   body   : block_item list;
+  mutable index : int option;
   mutable class_index : int option
 }
 

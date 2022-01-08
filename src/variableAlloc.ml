@@ -29,7 +29,7 @@ class variable_alloc_visitor ctx = object (self)
       | [] ->
           failwith "undefined variable"
     in
-    search 0 vars
+    search 0 (List.rev vars)
 
   method! visit_expression expr =
     super#visit_expression expr;
@@ -52,16 +52,18 @@ class variable_alloc_visitor ctx = object (self)
           name = "<dummy : new " ^ struct_name ^ ">";
           array_dim = [];
           type_spec = { data = t; qualifier = Some Ref };
-          initval = None
+          initval = None;
+          index = Some (List.length vars)
         }
         in
-        expr.node <- New (t, args, Some (List.length vars));
+        expr.node <- New (t, args, Some (Option.get v.index));
         vars <- v::vars
     | _ -> ()
     end
 
   method! visit_local_variable v =
     (* add local to var list *)
+    v.index <- Some (List.length vars);
     vars <- v::vars;
     super#visit_local_variable v
 
