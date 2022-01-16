@@ -10,6 +10,11 @@ open Printf
 type t = unit ptr
 let ain_ptr : t typ = ptr void
 
+let version = foreign "_ain_version" (ain_ptr @-> returning int)
+let minor_version = foreign "_ain_minor_version" (ain_ptr @-> returning int)
+let version_gte = foreign "_ain_version_gte" (ain_ptr @-> int @-> int @-> returning bool)
+let version_lt ain major minor = not (version_gte ain major minor)
+
 (** Bindings for `struct ain_type` objects *)
 module Type = struct
   type t_c
@@ -143,7 +148,7 @@ module Type = struct
 
   (* Convert a t to a t_c.data value *)
   (* FIXME: need to take version into account... *)
-  let rec to_c_data o =
+  let rec to_c_data ain o =
     if o.is_ref then
       match o.data with
       | Void -> failwith "tried to create ref void"
@@ -158,29 +163,32 @@ module Type = struct
       | Delegate (_) -> 67
       | HLLParam -> 75
       | Array (arrtype) ->
-          begin match arrtype.data with
-          | Void -> failwith "tried to create ref array<void>"
-          | Int -> 22
-          | Float -> 23
-          | String -> 24
-          | Struct (_) -> 25
-          | IMainSystem -> failwith "tried to create ref array<IMainSystem>"
-          | FuncType (_) -> 32
-          | Bool -> 52
-          | LongInt -> 60
-          | Delegate (_) -> 69
-          | HLLParam -> failwith "tried to create ref array<hll_param>"
-          | Array (_) -> failwith "tried to create ref array<array<...>>"
-          | Wrap (_) -> failwith "tried to create ref array<wrap<...>>"
-          | Option (_) -> failwith "tried to create ref array<option<...>>"
-          | Unknown87 (_) -> failwith "tried to create ref array<unknown_87>"
-          | IFace -> failwith "tried to create ref array<interface>"
-          | Enum2 (_) -> failwith "tried to create ref array<enum2>"
-          | Enum (_) -> failwith "tried to create ref array<enum>"
-          | HLLFunc -> failwith "tried to create ref array<hll_func>"
-          | IFaceWrap -> failwith "tried to create ref array<iface_wrap<...>>"
-          | Function (_) -> failwith "tried to create ref array<function>"
-          end
+          if version_gte ain 11 0 then
+            80
+          else
+            begin match arrtype.data with
+            | Void -> failwith "tried to create ref array<void>"
+            | Int -> 22
+            | Float -> 23
+            | String -> 24
+            | Struct (_) -> 25
+            | IMainSystem -> failwith "tried to create ref array<IMainSystem>"
+            | FuncType (_) -> 32
+            | Bool -> 52
+            | LongInt -> 60
+            | Delegate (_) -> 69
+            | HLLParam -> failwith "tried to create ref array<hll_param>"
+            | Array (_) -> failwith "tried to create ref array<array<...>>"
+            | Wrap (_) -> failwith "tried to create ref array<wrap<...>>"
+            | Option (_) -> failwith "tried to create ref array<option<...>>"
+            | Unknown87 (_) -> failwith "tried to create ref array<unknown_87>"
+            | IFace -> failwith "tried to create ref array<interface>"
+            | Enum2 (_) -> failwith "tried to create ref array<enum2>"
+            | Enum (_) -> failwith "tried to create ref array<enum>"
+            | HLLFunc -> failwith "tried to create ref array<hll_func>"
+            | IFaceWrap -> failwith "tried to create ref array<iface_wrap<...>>"
+            | Function (_) -> failwith "tried to create ref array<function>"
+            end
       | Wrap (_) -> failwith "tried to create ref wrap<...>"
       | Option (_) -> failwith "tried to create ref option<...>"
       | Unknown87 (_) -> failwith "tried to create ref unknown_87"
@@ -204,29 +212,32 @@ module Type = struct
         | Delegate (_) -> 63
         | HLLParam -> 74
         | Array (arrtype) ->
-            begin match arrtype.data with
-            | Void -> failwith "tried to create array<void>"
-            | Int -> 14
-            | Float -> 15
-            | String -> 16
-            | Struct (_) -> 17
-            | IMainSystem -> failwith "tried to create array<IMainSystem>"
-            | FuncType (_) -> 30
-            | Bool -> 50
-            | LongInt -> 58
-            | Delegate (_) -> 66
-            | HLLParam -> failwith "tried to create array<hll_param>"
-            | Array (_) -> failwith "tried to create array<array<...>>"
-            | Wrap (_) -> failwith "tried to create array<wrap<...>>"
-            | Option (_) -> failwith "tried to create array<option<...>>"
-            | Unknown87 (_) -> failwith "tried to create array<unknown_87>"
-            | IFace -> failwith "tried to create array<interface>"
-            | Enum2 (_) -> failwith "tried to create array<enum2>"
-            | Enum (_) -> failwith "tried to create array<enum>"
-            | HLLFunc -> failwith "tried to create array<hll_func>"
-            | IFaceWrap -> failwith "tried to create array<iface_wrap<...>>"
-            | Function (_) -> failwith "tried to create array<function>"
-            end
+            if version_gte ain 11 0 then
+              79
+            else
+              begin match arrtype.data with
+              | Void -> failwith "tried to create array<void>"
+              | Int -> 14
+              | Float -> 15
+              | String -> 16
+              | Struct (_) -> 17
+              | IMainSystem -> failwith "tried to create array<IMainSystem>"
+              | FuncType (_) -> 30
+              | Bool -> 50
+              | LongInt -> 58
+              | Delegate (_) -> 66
+              | HLLParam -> failwith "tried to create array<hll_param>"
+              | Array (_) -> failwith "tried to create array<array<...>>"
+              | Wrap (_) -> failwith "tried to create array<wrap<...>>"
+              | Option (_) -> failwith "tried to create array<option<...>>"
+              | Unknown87 (_) -> failwith "tried to create array<unknown_87>"
+              | IFace -> failwith "tried to create array<interface>"
+              | Enum2 (_) -> failwith "tried to create array<enum2>"
+              | Enum (_) -> failwith "tried to create array<enum>"
+              | HLLFunc -> failwith "tried to create array<hll_func>"
+              | IFaceWrap -> failwith "tried to create array<iface_wrap<...>>"
+              | Function (_) -> failwith "tried to create array<function>"
+              end
         | Wrap (_) -> 82
         | Option (_) -> 86
         | Unknown87 (_) -> 87
@@ -236,24 +247,47 @@ module Type = struct
         | HLLFunc -> 95
         | IFaceWrap -> 100
         | Function (_) -> failwith "tried to create function"
-  and to_c_struc o =
+  and to_c_struc _ o =
     match o.data with
     | Struct (no) | FuncType (no) | Delegate (no) | Enum2 (no) | Enum (no) -> no
+    | _ -> -1
+  and to_c_rank ain o =
+    match (version_gte ain 11 0, o.data) with
+    | (false, Array t) -> 1 + (to_c_rank ain t)
+    | (true, Array _) -> 1
+    | (_, (Wrap _ | Option _ | Unknown87 _)) -> 1
     | _ -> 0
-  and to_c_rank o =
-    match o.data with
-    (* FIXME: need to handle v11+ differently *)
-    | Array (t) -> 1 + (to_c_rank t)
-    | Wrap (_) | Option (_) | Unknown87 (_) -> 1
-    | _ -> 0
-  and to_c_array_type _ =
-    (* TODO: v11+ *)
-    from_voidp t_c null
-  and write_ptr src dst =
-    setf !@dst data (to_c_data src);
-    setf !@dst struc (Signed.Int32.of_int (to_c_struc src));
-    setf !@dst rank (Signed.Int32.of_int (to_c_rank src));
-    setf !@dst array_type (to_c_array_type src)
+  and to_c_array_type ain o =
+    match (version_gte ain 11 0, o.data) with
+    | (true, Array t) ->
+        let rec type_depth = function
+          | Array t | Wrap t | Option t | Unknown87 t ->
+              1 + (type_depth t.data)
+          | _ -> 0
+        in
+        let rec write_array_types src dst =
+          setf !@dst data (to_c_data ain src);
+          setf !@dst struc (Signed.Int32.of_int (to_c_struc ain src));
+          setf !@dst rank (Signed.Int32.of_int (to_c_rank ain src));
+          begin match src.data with
+          | Array t | Wrap t | Option t | Unknown87 t ->
+              setf !@dst array_type (dst +@ 1);
+              write_array_types t (dst +@ 1)
+          | _ ->
+              setf !@dst array_type (from_voidp t_c null)
+          end
+        in
+        let alloc_type = foreign "_ain_alloc_type" (int @-> returning (ptr t_c)) in
+        let dst = alloc_type (1 + (type_depth t.data)) in
+        write_array_types t dst;
+        dst
+    | _ ->
+        from_voidp t_c null
+  and write_ptr ain src dst =
+    setf !@dst data (to_c_data ain src);
+    setf !@dst struc (Signed.Int32.of_int (to_c_struc ain src));
+    setf !@dst rank (Signed.Int32.of_int (to_c_rank ain src));
+    setf !@dst array_type (to_c_array_type ain src)
 
   let make ?(is_ref=false) data =
     { data; is_ref }
@@ -370,10 +404,10 @@ module Variable = struct
       var_type = getf (!@ p) var_type
     }
 
-  let write_ptr src dst =
+  let write_ptr ain src dst =
     setf !@dst name src.name;
     setf !@dst name2 src.name2;
-    Type.write_ptr src.value_type (addr (getf !@dst value_type));
+    Type.write_ptr ain src.value_type (addr (getf !@dst value_type));
     (* FIXME: should use Option.is_some, but dst.has_initval isn't boolean...? *)
     begin match src.initval with
     | None -> setf !@dst has_initval (Signed.Int32.of_int 0)
@@ -421,6 +455,20 @@ module Function = struct
     mutable enum_type : int
   }
 
+  let create name =
+    { index = -1;
+      name = name;
+      address = 0;
+      nr_args = 0;
+      vars = [];
+      return_type = Type.make Void;
+      is_label = false;
+      is_lambda = 0;
+      crc = 0;
+      struct_type = -1;
+      enum_type = -1
+    }
+
   (* internal to Ain module *)
   let of_ptr p i =
     let rec vars_of_ptr p n result =
@@ -463,14 +511,14 @@ module Function = struct
     let rec write_vars dst = function
       | [] -> ()
       | x::xs ->
-          Variable.write_ptr x dst;
+          Variable.write_ptr ain x dst;
           write_vars (dst +@ 1) xs
     in
     let f_c = c_of_int_checked ain f.index in
     (* XXX: name is fixed upon creation and never updated *)
     setf !@f_c address (Unsigned.UInt32.of_int f.address);
     setf !@f_c is_label f.is_label;
-    Type.write_ptr f.return_type (addr (getf !@f_c return_type));
+    Type.write_ptr ain f.return_type (addr (getf !@f_c return_type));
     setf !@f_c nr_args (Signed.Int32.of_int f.nr_args);
     setf !@f_c is_lambda (Signed.Int32.of_int f.is_lambda);
     setf !@f_c crc (Signed.Int32.of_int f.crc);
@@ -594,7 +642,7 @@ module Struct = struct
     let rec write_members dst = function
       | [] -> ()
       | x :: xs ->
-          Variable.write_ptr x dst;
+          Variable.write_ptr ain x dst;
           write_members (dst +@ 1) xs
     in
     let s_c = c_of_int_checked ain s.index in
@@ -608,46 +656,94 @@ end
 
 (** Bindings for `struct ain_library` objects (and related types). *)
 module Library = struct
-  module Argument = struct
-    type t
-    let t : t structure typ = structure "ain_hll_argument"
-    let name = field t "name" string
-    let value_type = field t "type" Type.t_c
-    let () = seal t
+  module HLLArgument = struct
+    type t_c
+    let t_c : t_c structure typ = structure "ain_hll_argument"
+    let name = field t_c "name" string
+    let value_type = field t_c "type" Type.t_c
+    let () = seal t_c
+
+    type t = {
+      name : string;
+      value_type : Type.t
+    }
+
+    let of_ptr p =
+      { name = getf!@p name;
+        value_type = Type.of_ptr (addr (getf !@p value_type))
+      }
   end
-  module Function = struct
-    type t
-    let t : t structure typ = structure "ain_hll_function"
-    let name = field t "name" string
-    let return_type = field t "return_type" Type.t_c
-    let nr_arguments = field t "nr_arguments" int32_t
-    let arguments = field t "arguments" (ptr Argument.t)
-    let () = seal t
+  module HLLFunction = struct
+    type t_c
+    let t_c : t_c structure typ = structure "ain_hll_function"
+    let name = field t_c "name" string
+    let return_type = field t_c "return_type" Type.t_c
+    let nr_arguments = field t_c "nr_arguments" int32_t
+    let arguments = field t_c "arguments" (ptr HLLArgument.t_c)
+    let () = seal t_c
+
+    type t = {
+      index : int;
+      lib_no : int;
+      name : string;
+      return_type : Type.t;
+      arguments : HLLArgument.t list
+    }
+
+    let of_ptr p lib_no func_no =
+      let rec arguments_of_ptr p n result =
+        if n == 0 then
+          List.rev result
+        else
+          arguments_of_ptr (p +@ 1) (n - 1) ((HLLArgument.of_ptr p)::result)
+      in
+      let nr_args = Signed.Int32.to_int (getf !@p nr_arguments) in
+      { index = func_no;
+        lib_no = lib_no;
+        name = getf !@p name;
+        return_type = Type.of_ptr (addr (getf !@p return_type));
+        arguments = arguments_of_ptr (getf !@p arguments) nr_args []
+      }
   end
 
   type t_c
   let t_c : t_c structure typ = structure "ain_library"
   let name = field t_c "name" string
   let nr_functions = field t_c "nr_functions" int32_t
-  let functions = field t_c "functions" (ptr Function.t)
+  let functions = field t_c "functions" (ptr HLLFunction.t_c)
   let () = seal t_c
-
-  type hll_argument = {
-    name : string;
-    value_type : Type.t
-  }
-
-  type hll_function = {
-    name : string;
-    return_type : Type.t;
-    arguments : hll_argument list
-  }
 
   type t = {
     index : int;
     name : string;
-    functions : hll_function list
+    functions : HLLFunction.t list
   }
+
+  (* internal to Ain module *)
+  let of_ptr p lib_no =
+    let rec functions_of_ptr p i n result =
+      if n == 0 then
+        List.rev result
+      else
+        functions_of_ptr (p +@ 1) (i + 1) (n - 1) ((HLLFunction.of_ptr p lib_no i)::result)
+    in
+    { index = lib_no;
+      name = getf !@p name;
+      functions = functions_of_ptr (getf !@p functions) 0 (Signed.Int32.to_int (getf !@p nr_functions)) []
+    }
+
+  (* internal to Ain module *)
+  let c_of_int = foreign "_ain_library" (ain_ptr @-> int @-> returning (ptr_opt t_c))
+
+  (* internal to Ain module *)
+  let c_of_int_checked ain i =
+    match c_of_int ain i with
+    | Some obj -> obj
+    | None -> failwith "_ain_library returned NULL"
+
+  (** Get a library object by index from an ain file. *)
+  let of_int ain no =
+    of_ptr (c_of_int_checked ain no) no
 end
 
 (** Bindings for `struct ain_switch` objects. *)
@@ -731,12 +827,12 @@ module FunctionType = struct
     let rec write_vars dst = function
       | [] -> ()
       | x::xs ->
-          Variable.write_ptr x dst;
+          Variable.write_ptr ain x dst;
           write_vars (dst +@ 1) xs
     in
     let f_c = c_of_int_checked ain f.index in
     (* XXX: name is fixed upon creation and never updated *)
-    Type.write_ptr f.return_type (addr (getf !@f_c return_type));
+    Type.write_ptr ain f.return_type (addr (getf !@f_c return_type));
     setf !@f_c nr_arguments (Signed.Int32.of_int f.nr_arguments);
     realloc_vars f_c (List.length f.variables);
     write_vars (getf !@f_c variables) f.variables
@@ -817,8 +913,8 @@ let return_option i =
   if i < 0 then None else Some i
 
 let get_enum p name = get_enum' p name |> return_option
-let get_library p name = get_library' p name |> return_option
-let get_library_function p i name = get_library_function' p i name |> return_option
+let get_library_index p name = get_library' p name |> return_option
+let get_library_function_index p i name = get_library_function' p i name |> return_option
 let get_string_no p s = get_string_no' p s |> return_option
 
 let get_functype_index p name = get_functype' p name |> return_option
@@ -843,7 +939,7 @@ let write_global p name t =
   | -1 -> failwith "global not defined in ain file"
   | i ->
       let g = get_c_global_by_index p i in
-      Type.write_ptr t (addr (getf (!@ g) Variable.value_type))
+      Type.write_ptr p t (addr (getf (!@ g) Variable.value_type))
 
 let get_function_by_index p no =
   match Function.c_of_int p no with
@@ -879,14 +975,69 @@ let get_functype p name =
   | -1 -> None
   | i -> Some (FunctionType.of_int p i)
 
+let function_of_functype_index ain no =
+    let ft = FunctionType.of_int ain no in
+    let (r:Function.t) =
+      { index = no;
+        address = 0;
+        name = ft.name;
+        nr_args = ft.nr_arguments;
+        vars = ft.variables;
+        return_type = ft.return_type;
+        is_label = false;
+        is_lambda = 0;
+        crc = 0;
+        struct_type = -1;
+        enum_type = -1
+      }
+    in
+    r
+
 let add_functype p name =
   FunctionType.of_int p (add_functype' p name)
 
-let version = foreign "_ain_version" (ain_ptr @-> returning int)
-let minor_version = foreign "_ain_minor_version" (ain_ptr @-> returning int)
-let version_gte = foreign "_ain_version_gte" (ain_ptr @-> int @-> int @-> returning bool)
+let function_of_hll_function_index ain lib_no fun_no =
+  let get_fun = foreign "_ain_library_function" (ain_ptr @-> int @-> int @-> returning (ptr_opt (Library.HLLFunction.t_c))) in
+  match get_fun ain lib_no fun_no with
+  | Some p ->
+      let var_of_hll_arg (arg:Library.HLLArgument.t) =
+        let (r:Variable.t) =
+          { index = 0;
+            name = arg.name;
+            name2 = "";
+            value_type = arg.value_type;
+            initval = None;
+            group_index = 0;
+            var_type = 0
+          }
+        in
+        r
+      in
+      let f = Library.HLLFunction.of_ptr p lib_no fun_no in
+      let (r:Function.t) =
+        { index = fun_no;
+          address = 0;
+          name = f.name;
+          nr_args = List.length f.arguments;
+          vars = List.map var_of_hll_arg f.arguments;
+          return_type = f.return_type;
+          is_label = false;
+          is_lambda = 0;
+          crc = 0;
+          struct_type = -1;
+          enum_type = -1
+        }
+      in
+      r
+  | None ->
+      failwith "_ain_library_function returned NULL"
 
 let append_bytecode = foreign "_ain_append_bytecode" (ain_ptr @-> Buffer.buffer_ptr @-> returning void)
+
+let code_size = foreign "_ain_code_size" (ain_ptr @-> returning int)
+
+let set_main_function = foreign "_ain_set_main_function" (ain_ptr @-> int @-> returning void)
+let set_message_function = foreign "_ain_set_message_function" (ain_ptr @-> int @-> returning void)
 
 let write p filename =
   let write' = foreign "ain_write" (string @-> ain_ptr @-> returning void) in

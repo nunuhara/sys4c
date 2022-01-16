@@ -1121,3 +1121,307 @@ let string_of_opcode = function
   | X_A_SIZE -> "X_A_SIZE"
   | X_TO_STR -> "X_TO_STR"
 
+type syscall =
+  | Exit
+  | GlobalSave
+  | GlobalLoad
+  | LockPeek
+  | UnlockPeek
+  | Reset
+  | Output
+  | MsgBox
+  | ResumeSave
+  | ResumeLoad
+  | ExistsFile
+  | OpenWeb
+  | GetSaveFolderName
+  | GetTime
+  | GetGameName
+  | Error
+  | ExistsSaveFile
+  | IsDebugMode
+  | MsgBoxOkCancel
+  | GetFuncStackName
+  | Peek
+  | Sleep
+  | ResumeWriteComment
+  | ResumeReadComment
+  | GroupSave
+  | GroupLoad
+  | DeleteSaveFile
+  | ExistFunc
+  | CopySaveFile
+
+let int_of_syscall = function
+  | Exit               -> 0x00
+  | GlobalSave         -> 0x01
+  | GlobalLoad         -> 0x02
+  | LockPeek           -> 0x03
+  | UnlockPeek         -> 0x04
+  | Reset              -> 0x05
+  | Output             -> 0x06
+  | MsgBox             -> 0x07
+  | ResumeSave         -> 0x08
+  | ResumeLoad         -> 0x09
+  | ExistsFile         -> 0x0A
+  | OpenWeb            -> 0x0B
+  | GetSaveFolderName  -> 0x0C
+  | GetTime            -> 0x0D
+  | GetGameName        -> 0x0E
+  | Error              -> 0x0F
+  | ExistsSaveFile     -> 0x10
+  | IsDebugMode        -> 0x11
+  | MsgBoxOkCancel     -> 0x12
+  | GetFuncStackName   -> 0x13
+  | Peek               -> 0x14
+  | Sleep              -> 0x15
+  | ResumeWriteComment -> 0x16
+  | ResumeReadComment  -> 0x17
+  | GroupSave          -> 0x18
+  | GroupLoad          -> 0x19
+  | DeleteSaveFile     -> 0x1A
+  | ExistFunc          -> 0x1B
+  | CopySaveFile       -> 0x1C
+
+let syscall_of_string = function
+  | "Exit"               -> Some Exit
+  | "GlobalSave"         -> Some GlobalSave
+  | "GlobalLoad"         -> Some GlobalLoad
+  | "LockPeek"           -> Some LockPeek
+  | "UnlockPeek"         -> Some UnlockPeek
+  | "Reset"              -> Some Reset
+  | "Output"             -> Some Output
+  | "MsgBox"             -> Some MsgBox
+  | "ResumeSave"         -> Some ResumeSave
+  | "ResumeLoad"         -> Some ResumeLoad
+  | "ExistsFile"         -> Some ExistsFile
+  | "OpenWeb"            -> Some OpenWeb
+  | "GetSaveFolderName"  -> Some GetSaveFolderName
+  | "GetTime"            -> Some GetTime
+  | "GetGameName"        -> Some GetGameName
+  | "Error"              -> Some Error
+  | "ExistsSaveFile"     -> Some ExistsSaveFile
+  | "IsDebugMode"        -> Some IsDebugMode
+  | "MsgBoxOkCancel"     -> Some MsgBoxOkCancel
+  | "GetFuncStackName"   -> Some GetFuncStackName
+  | "Peek"               -> Some Peek
+  | "Sleep"              -> Some Sleep
+  | "ResumeWriteComment" -> Some ResumeWriteComment
+  | "ResumeReadComment"  -> Some ResumeReadComment
+  | "GroupSave"          -> Some GroupSave
+  | "GroupLoad"          -> Some GroupLoad
+  | "DeleteSaveFile"     -> Some DeleteSaveFile
+  | "ExistFunc"          -> Some ExistFunc
+  | "CopySaveFile"       -> Some CopySaveFile
+  | _ -> None
+
+let function_of_syscall sys =
+  let t_void = Alice.Ain.Type.make Void in
+  let t_int = Alice.Ain.Type.make Int in
+  let t_string = Alice.Ain.Type.make String in
+  let t_bool = Alice.Ain.Type.make Bool in
+  let t_ref_int = Alice.Ain.Type.make ~is_ref:true Int in
+  let t_ref_array_string = Alice.Ain.Type.make ~is_ref:true (Array t_string) in
+  let make_vars (types:Alice.Ain.Type.t list) =
+    let make_var t i =
+      let (r:Alice.Ain.Variable.t) =
+        { index = i;
+          name = "";
+          name2 = "";
+          value_type = t;
+          initval = None;
+          group_index = 0;
+          var_type = 0
+        }
+      in
+      r
+    in
+    List.map2 make_var types (List.init (List.length types) (~+))
+  in
+  let (default:Alice.Ain.Function.t) =
+    { index       = -1;
+      name        = "";
+      address     = 0;
+      nr_args     = 0;
+      vars        = [];
+      return_type = t_void;
+      is_label    = false;
+      is_lambda   = 0;
+      crc         = 0;
+      struct_type = -1;
+      enum_type   = -1
+    }
+  in
+  let make_function i return_type name arg_types =
+    { default with
+      index = i;
+      name = name;
+      nr_args = (List.length arg_types);
+      vars = make_vars arg_types;
+      return_type = return_type
+    }
+  in
+  match sys with
+  | Exit               -> make_function 0x00 t_void "Exit" [t_int]
+  | GlobalSave         -> make_function 0x01 t_int "GlobalSave" [t_string; t_string]
+  | GlobalLoad         -> make_function 0x02 t_int "GlobalLoad" [t_string; t_string]
+  | LockPeek           -> make_function 0x03 t_int "LockPeek" []
+  | UnlockPeek         -> make_function 0x04 t_int "UnlockPeek" []
+  | Reset              -> make_function 0x05 t_void "Reset" []
+  | Output             -> make_function 0x06 t_string "Output" [t_string]
+  | MsgBox             -> make_function 0x07 t_string "MsgBox" [t_string]
+  | ResumeSave         -> make_function 0x08 t_int "ResumeSave" [t_string; t_string; t_ref_int]
+  | ResumeLoad         -> make_function 0x09 t_void "ResumeLoad" [t_string; t_string]
+  | ExistsFile         -> make_function 0x0A t_int "ExistsFile" [t_string]
+  | OpenWeb            -> make_function 0x0B t_void "OpenWeb" [t_string]
+  | GetSaveFolderName  -> make_function 0x0C t_string "GetSaveFolderName" []
+  | GetTime            -> make_function 0x0D t_int "GetTime" []
+  | GetGameName        -> make_function 0x0E t_string "GetGameName" []
+  | Error              -> make_function 0x0F t_string "Error" [t_string]
+  | ExistsSaveFile     -> make_function 0x10 t_int "ExistsSaveFile" [t_string]
+  | IsDebugMode        -> make_function 0x11 t_int "IsDebugMode" []
+  | MsgBoxOkCancel     -> make_function 0x12 t_int "MsgBoxOkCancel" [t_string]
+  | GetFuncStackName   -> make_function 0x13 t_string "GetFuncStackName" [t_int]
+  | Peek               -> make_function 0x14 t_void "Peek" []
+  | Sleep              -> make_function 0x15 t_void "Sleep" [t_int]
+  | ResumeWriteComment -> make_function 0x16 t_bool "ResumeWriteComment" [t_string; t_string; t_ref_array_string]
+  | ResumeReadComment  -> make_function 0x17 t_bool "ResumeReadComment" [t_string; t_string; t_ref_array_string]
+  | GroupSave          -> make_function 0x18 t_int "GroupSave" [t_string; t_string; t_string; t_ref_int]
+  | GroupLoad          -> make_function 0x19 t_int "GroupLoad" [t_string; t_string; t_string; t_ref_int]
+  | DeleteSaveFile     -> make_function 0x1A t_int "DeleteSaveFile" [t_string]
+  | ExistFunc          -> make_function 0x1B t_bool "ExistFunc" [t_string]
+  | CopySaveFile       -> make_function 0x1C t_int "CopySaveFile" [t_string; t_string]
+
+type builtin =
+  | IntString
+  | FloatString
+  | StringInt
+  | StringLength
+  | StringLengthByte
+  | StringEmpty
+  | StringFind
+  | StringGetPart
+  | StringPushBack
+  | StringPopBack
+  | StringErase
+  | ArrayAlloc
+  | ArrayRealloc
+  | ArrayFree
+  | ArrayNumof
+  | ArrayCopy
+  | ArrayFill
+  | ArrayPushBack
+  | ArrayPopBack
+  | ArrayEmpty
+  | ArrayErase
+  | ArrayInsert
+  | ArraySort
+
+let int_builtin_of_string = function
+  | "String" -> Some IntString
+  | _ -> None
+
+let float_builtin_of_string = function
+  | "String" -> Some FloatString
+  | _ -> None
+
+let string_builtin_of_string = function
+  | "Int" -> Some StringInt
+  | "Length" -> Some StringLength
+  | "LengthByte" -> Some StringLengthByte
+  | "Empty" -> Some StringEmpty
+  | "Find" -> Some StringFind
+  | "GetPart" -> Some StringGetPart
+  | "PushBack" -> Some StringPushBack
+  | "PopBack" -> Some StringPopBack
+  | "Erase" -> Some StringErase
+  | _ -> None
+
+let array_builtin_of_string = function
+  | "Alloc" -> Some ArrayAlloc
+  | "Realloc" -> Some ArrayRealloc
+  | "Free" -> Some ArrayFree
+  | "Numof" -> Some ArrayNumof
+  | "Copy" -> Some ArrayCopy
+  | "Fill" -> Some ArrayFill
+  | "PushBack" -> Some ArrayPushBack
+  | "PopBack" -> Some ArrayPopBack
+  | "Empty" -> Some ArrayEmpty
+  | "Erase" -> Some ArrayErase
+  | "Insert" -> Some ArrayInsert
+  | "Sort" -> Some ArraySort
+  | _ -> None
+
+let builtin_of_string (t:Alice.Ain.Type.data) name =
+  match t with
+  | Int -> int_builtin_of_string name
+  | Float -> float_builtin_of_string name
+  | String -> string_builtin_of_string name
+  | Array _ -> array_builtin_of_string name
+  | _ -> None
+
+let function_of_builtin builtin =
+  let t_void = Alice.Ain.Type.make Void in
+  let t_int = Alice.Ain.Type.make Int in
+  let t_string = Alice.Ain.Type.make String in
+  let t_ref_array = Alice.Ain.Type.make ~is_ref:true (Array t_void) in
+  let t_func = Alice.Ain.Type.make ~is_ref:true (Function 0) in
+  let (default:Alice.Ain.Function.t) =
+    { index       = -1;
+      name        = "";
+      address     = 0;
+      nr_args     = 0;
+      vars        = [];
+      return_type = t_void;
+      is_label    = false;
+      is_lambda   = 0;
+      crc         = 0;
+      struct_type = -1;
+      enum_type   = -1
+    }
+  in
+  let make_function return_type name (arg_types:Alice.Ain.Type.t list) =
+    let make_var (t:Alice.Ain.Type.t) i =
+      let (r:Alice.Ain.Variable.t) =
+        { index = i;
+          name = "";
+          name2 = "";
+          value_type = t;
+          initval = None;
+          group_index = 0;
+          var_type = 0
+        }
+      in
+      r
+    in
+    { default with
+      name = name;
+      nr_args = List.length arg_types;
+      vars = List.map2 make_var arg_types (List.init (List.length arg_types) (~+));
+      return_type = return_type
+    }
+  in
+  match builtin with
+  | IntString        -> make_function t_string "String" []
+  | FloatString      -> make_function t_string "String" []
+  | StringInt        -> make_function t_int "Int" []
+  | StringLength     -> make_function t_int "Length" []
+  | StringLengthByte -> make_function t_int "LengthByte" []
+  | StringEmpty      -> make_function t_int "Empty" []
+  | StringFind       -> make_function t_int "Find" [t_string]
+  | StringGetPart    -> make_function t_string "GetPart" [t_int; t_int]
+  | StringPushBack   -> make_function t_void "PushBack" [t_int]
+  | StringPopBack    -> make_function t_void "PopBack" []
+  | StringErase      -> make_function t_void "Erase" [t_int]
+  | ArrayAlloc       -> make_function t_void "Alloc" [t_int]
+  | ArrayRealloc     -> make_function t_void "Realloc" [t_int]
+  | ArrayFree        -> make_function t_void "Free" []
+  | ArrayNumof       -> make_function t_int "Numof" []
+  | ArrayCopy        -> make_function t_int "Copy" [t_int; t_ref_array; t_int; t_int]
+  | ArrayFill        -> make_function t_int "Fill" [t_int; t_int; t_void]
+  | ArrayPushBack    -> make_function t_void "PushBack" [t_void]
+  | ArrayPopBack     -> make_function t_void "PopBack" []
+  | ArrayEmpty       -> make_function t_int "Empty" []
+  | ArrayErase       -> make_function t_int "Erase" [t_int]
+  | ArrayInsert      -> make_function t_void "Insert" [t_int; t_void]
+  | ArraySort        -> make_function t_void "Sort" [t_func]

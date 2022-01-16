@@ -34,7 +34,7 @@ let decls typespec var_list =
   List.map (decl typespec) var_list
 
 let func typespec name params body =
-  { name=name; return=typespec; params=params; body=body; index=None; class_index=None }
+  { name=name; return=typespec; params=params; body=body; index=None; class_index=None; super_index=None }
 
 %}
 
@@ -110,9 +110,9 @@ postfix_expression
   : primary_expression { $1 }
   | postfix_expression LBRACKET expression RBRACKET { expr (Subscript ($1, $3)) }
   | atomic_type_specifier LPAREN expression RPAREN { expr (Cast ($1, $3)) }
-  | postfix_expression arglist { expr (Call ($1, $2)) }
+  | postfix_expression arglist { expr (Call ($1, $2, None)) }
   | NEW IDENTIFIER arglist { expr (New (Unresolved ($2), $3, None)) }
-  | postfix_expression DOT IDENTIFIER { expr (Member ($1, $3)) }
+  | postfix_expression DOT IDENTIFIER { expr (Member ($1, $3, None)) }
   | postfix_expression INC { expr (Unary (PostInc, $1)) }
   | postfix_expression DEC { expr (Unary (PostDec, $1)) }
   ;
@@ -251,8 +251,8 @@ type_qualifier
 type_specifier
   : atomic_type_specifier { $1 }
   (* FIXME: this disallows arrays/wraps of ref-qualified types *)
-  | ARRAY LT type_specifier GT { Array (qtype None $3, 1) }
-  | ARRAY LT QUESTION GT { Array (qtype None Void, 1) }
+  | ARRAY LT type_specifier GT { Array (qtype None $3) }
+  | ARRAY LT QUESTION GT { Array (qtype None Void) }
   | WRAP LT type_specifier GT { Wrap (qtype None $3) }
   | WRAP LT QUESTION GT { Wrap (qtype None Void) }
   | IDENTIFIER { Unresolved ($1) }
@@ -324,7 +324,7 @@ jump_statement
   ;
 
 message_statement
-  : C_CONSTANT IDENTIFIER SEMICOLON { MessageCall ($1, $2) }
+  : C_CONSTANT IDENTIFIER SEMICOLON { MessageCall ($1, Some $2, None) }
   ;
 
 rassign_statement

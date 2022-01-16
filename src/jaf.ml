@@ -79,7 +79,7 @@ and data_type =
   | String
   | Struct   of string * int
   (*| Enum*)
-  | Array    of type_specifier * int
+  | Array    of type_specifier
   | Wrap     of type_specifier
   | HLLParam
   | HLLFunc
@@ -92,6 +92,22 @@ type ident_type =
   | GlobalConstant
   | FunctionName of int
   | HLLName of int
+  | System
+
+type member_type =
+  | ClassVariable of int * int
+  | ClassMethod of int * int
+  | HLLFunction of int * int
+  | SystemFunction of Bytecode.syscall
+  | BuiltinMethod of Bytecode.builtin
+
+type call_type =
+  | FunctionCall of int
+  | MethodCall of int * int
+  | HLLCall of int * int * int
+  | SystemCall of Bytecode.syscall
+  | BuiltinCall of Bytecode.builtin
+  | FuncTypeCall of int
 
 type expression = {
   mutable valuetype : Alice.Ain.Type.t option;
@@ -110,8 +126,8 @@ and ast_expression =
   | Ternary     of expression * expression      * expression
   | Cast        of data_type  * expression
   | Subscript   of expression * expression
-  | Member      of expression * string
-  | Call        of expression * expression list
+  | Member      of expression * string * member_type option
+  | Call        of expression * expression list * call_type option
   | New         of data_type  * expression list * int option
   | This
 
@@ -119,7 +135,7 @@ type block_item =
   | Statement    of statement
   | Declarations of variable list
 and statement = {
-  node : ast_statement
+  mutable node : ast_statement
 }
 and ast_statement =
   | EmptyStatement
@@ -134,7 +150,7 @@ and ast_statement =
   | Continue
   | Break
   | Return         of expression option
-  | MessageCall    of string          * string
+  | MessageCall    of string          * string option * int option
   | RefAssign      of expression      * expression
 and variable = {
   name      : string;
@@ -145,12 +161,13 @@ and variable = {
 }
 
 type fundecl = {
-  name   : string;
+  mutable name : string;
   return : type_specifier;
   params : variable list;
-  body   : block_item list;
+  body : block_item list;
   mutable index : int option;
-  mutable class_index : int option
+  mutable class_index : int option;
+  mutable super_index : int option
 }
 
 type struct_declaration =
@@ -265,9 +282,9 @@ class ivisitor = object (self)
     | Subscript (arr, i) ->
         self#visit_expression arr;
         self#visit_expression i
-    | Member (obj, _) ->
+    | Member (obj, _, _) ->
         self#visit_expression obj
-    | Call (f, args) ->
+    | Call (f, args, _) ->
         self#visit_expression f;
         List.iter self#visit_expression args
     | New (_, args, _) ->
@@ -307,7 +324,7 @@ class ivisitor = object (self)
     | Break -> ()
     | Return (e) ->
         Option.iter self#visit_expression e
-    | MessageCall (_, _) -> ()
+    | MessageCall (_, _, _) -> ()
     | RefAssign (a, b) ->
         self#visit_expression a;
         self#visit_expression b
@@ -323,7 +340,9 @@ class ivisitor = object (self)
     | Declarations (ds) -> List.iter self#visit_local_variable ds
 
   method visit_fundecl f =
-    List.iter self#visit_block_item f.body
+    environment#enter_function f;
+    List.iter self#visit_block_item f.body;
+    environment#leave_function
 
   method visit_declaration d =
     let visit_vardecl d =
@@ -333,9 +352,7 @@ class ivisitor = object (self)
     match d with
     | Global (g) -> visit_vardecl g
     | Function (f) ->
-        environment#enter_function f;
         self#visit_fundecl f;
-        environment#leave_function
     | FuncTypeDef (_) -> ()
     | StructDef (s) ->
         let visit_structdecl = function
@@ -408,15 +425,15 @@ let type_qualifier_to_string = function
 
 let rec data_type_to_string = function
   | Untyped -> "untyped"
-  | Unresolved (s) -> "Unresolved<" ^ s ^ ">"
+  | Unresolved s -> "Unresolved<" ^ s ^ ">"
   | Void -> "void"
   | Int -> "int"
   | Bool -> "bool"
   | Float -> "float"
   | String -> "string"
   | Struct (s, _) -> s
-  | Array (t, _) -> "array<" ^ (type_spec_to_string t) ^ ">" (* TODO: rank *)
-  | Wrap (t) -> "wrap<" ^ (type_spec_to_string t) ^ ">"
+  | Array t -> "array<" ^ (type_spec_to_string t) ^ ">" (* TODO: rank *)
+  | Wrap t -> "wrap<" ^ (type_spec_to_string t) ^ ">"
   | HLLParam -> "hll_param"
   | HLLFunc -> "hll_func"
   | Delegate -> "delegate"
@@ -464,9 +481,9 @@ let rec expr_to_string (e : expression) =
       sprintf "(%s)%s" (data_type_to_string t) (expr_to_string e)
   | Subscript (e, i) ->
       sprintf "%s[%s]" (expr_to_string e) (expr_to_string i)
-  | Member (e, s) ->
+  | Member (e, s, _) ->
       sprintf "%s.%s" (expr_to_string e) s
-  | Call (f, args) ->
+  | Call (f, args, _) ->
       sprintf "%s%s" (expr_to_string f) (arglist_to_string args)
   | New (t, args, _) ->
       sprintf "new %s%s" (data_type_to_string t) (arglist_to_string args)
@@ -514,8 +531,11 @@ let rec stmt_to_string (stmt : statement) =
       "return;"
   | Return (Some e) ->
       sprintf "return %s;" (expr_to_string e)
-  | MessageCall (msg, f) ->
-      sprintf "'%s' %s;" msg f
+  | MessageCall (msg, f, _) ->
+      begin match f with
+      | Some name -> sprintf "'%s' %s;" msg name
+      | None      -> sprintf "'%s';" msg
+      end
   | RefAssign (dst, src) ->
       sprintf "%s <- %s;" (expr_to_string dst) (expr_to_string src)
 and var_to_string' d =
@@ -600,24 +620,23 @@ let ast_to_string = function
   | ASTVariable (v) -> var_to_string v
   | ASTDeclaration (d) -> decl_to_string d
 
-let jaf_to_ain_data_type data =
+let rec jaf_to_ain_data_type data =
   match data with
   | Untyped -> failwith "tried to convert Untyped to ain data type"
-  | Unresolved (_) -> failwith "tried to covert Unresolved to ain data type"
+  | Unresolved _ -> failwith "tried to covert Unresolved to ain data type"
   | Void -> Alice.Ain.Type.Void
   | Int -> Alice.Ain.Type.Int
   | Bool -> Alice.Ain.Type.Bool
   | Float -> Alice.Ain.Type.Float
   | String -> Alice.Ain.Type.String
   | Struct (_, i) -> (Alice.Ain.Type.Struct i)
-  | Array (_, _) -> failwith "arrays not yet supported"
-  | Wrap (_) -> failwith "wrap<...> not yet supported"
+  | Array t -> Alice.Ain.Type.Array (jaf_to_ain_type t)
+  | Wrap t -> Alice.Ain.Type.Wrap (jaf_to_ain_type t)
   | HLLParam -> Alice.Ain.Type.HLLParam
   | HLLFunc -> Alice.Ain.Type.HLLFunc
   | Delegate -> failwith "delegates not yet supported"
   | FuncType (_, i) -> Alice.Ain.Type.FuncType i
-
-let jaf_to_ain_type spec =
+and jaf_to_ain_type spec =
   let is_ref =
     match spec.qualifier with
     | Some Ref -> true

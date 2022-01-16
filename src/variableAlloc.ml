@@ -15,6 +15,7 @@
  *)
 
 open Jaf
+open Error
 
 class variable_alloc_visitor ctx = object (self)
   inherit ivisitor as super
@@ -27,7 +28,7 @@ class variable_alloc_visitor ctx = object (self)
       | hd::tl ->
           if hd.name = name then i else search (i + 1) tl
       | [] ->
-          failwith "undefined variable"
+          compiler_bug ("Undefined variable: " ^ name) None
     in
     search 0 (List.rev vars)
 
@@ -46,7 +47,7 @@ class variable_alloc_visitor ctx = object (self)
         let struct_name =
           match t with
           | Struct (name, _) -> name
-          | _ -> failwith "non-struct type in new expression"
+          | _ -> compiler_bug "Non-struct type in new expression" (Some(ASTExpression expr))
         in
         let v = {
           name = "<dummy : new " ^ struct_name ^ ">";
@@ -81,6 +82,9 @@ class variable_alloc_visitor ctx = object (self)
     (* write updated fundecl to ain file *)
     begin match Alice.Ain.get_function ctx.ain f.name with
     | Some (obj) -> obj |> jaf_to_ain_function f |> add_vars |> Alice.Ain.Function.write ctx.ain
-    | None -> failwith "undefined function"
+    | None -> compiler_bug "Undefined function" (Some(ASTDeclaration(Function f)))
     end
 end
+
+let allocate_variables ctx decls =
+  (new variable_alloc_visitor ctx)#visit_toplevel decls

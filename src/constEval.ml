@@ -15,10 +15,7 @@
  *)
 
 open Jaf
-
-exception Const_error of variable
-
-let const_error v = raise (Const_error (v))
+open Error
 
 let expr_replace dst expr =
   dst.valuetype <- expr.valuetype;
@@ -30,7 +27,8 @@ let const_replace dst const_expr =
   | ConstFloat _  -> dst.valuetype <- Some (Alice.Ain.Type.make Alice.Ain.Type.Float)
   | ConstChar _   -> dst.valuetype <- Some (Alice.Ain.Type.make Alice.Ain.Type.Int)
   | ConstString _ -> dst.valuetype <- Some (Alice.Ain.Type.make Alice.Ain.Type.String)
-  | _             -> failwith "const_replace: not a constant expression"
+  | _             -> compiler_bug "const_replace: not a constant expression"
+                                  (Some(ASTExpression {node=const_expr; valuetype=None}))
   end;
   dst.node <- const_expr
 
@@ -189,8 +187,8 @@ class const_eval_visitor ctx = object (self)
         | _ -> ()
         end
     | Subscript (_, _) -> ()
-    | Member (_, _) -> ()
-    | Call (_, _) -> ()
+    | Member (_, _, _) -> ()
+    | Call (_, _, _) -> ()
     | New (_, _, _) -> ()
     | This -> ()
 
@@ -236,3 +234,6 @@ class const_eval_visitor ctx = object (self)
     | _ -> ()
 
 end
+
+let evaluate_constant_expressions ctx decls =
+  (new const_eval_visitor ctx)#visit_toplevel decls

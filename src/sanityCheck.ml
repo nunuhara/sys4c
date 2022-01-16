@@ -15,6 +15,7 @@
  *)
 
 open Jaf
+open Error
 
 class sanity_check_visitor = object
   inherit ivisitor as super
@@ -24,15 +25,22 @@ class sanity_check_visitor = object
     begin match expr.valuetype with
     | Some t ->
         if t.is_ref then
-          failwith "expression has ref type"
+          begin match t.data with
+          | Function _ -> ()
+          | _ -> compiler_bug "expression has ref type" (Some(ASTExpression expr))
+          end
     | None ->
-        failwith "expression has no type"
+        compiler_bug "expression has no type" (Some(ASTExpression expr))
     end;
     begin match expr.node with
     | Ident (_, None) ->
-        failwith "identifier expression has no ident_type"
+        compiler_bug "identifier expression has no ident_type" (Some(ASTExpression expr))
     | Ident (_, Some GlobalConstant) ->
-        failwith "global constant not eliminated"
+        compiler_bug "global constant not eliminated" (Some(ASTExpression expr))
+    | Member (_, _, None) ->
+        compiler_bug "member expression has no member_type" (Some(ASTExpression expr))
+    | Call (_, _, None) ->
+        compiler_bug "call expression has no call_type" (Some(ASTExpression expr))
     | _ -> ()
     end
 
@@ -40,13 +48,13 @@ class sanity_check_visitor = object
     super#visit_local_variable v;
     match v.index with
     | Some _ -> ()
-    | None -> failwith "local variable index not set"
+    | None -> compiler_bug "local variable index not set" (Some(ASTVariable v))
 
   method! visit_fundecl f =
     super#visit_fundecl f;
     match f.index with
     | Some _ -> ()
-    | None -> failwith "function index not set"
+    | None -> compiler_bug "function index not set" (Some(ASTDeclaration(Function f)))
 
   method! visit_declaration d =
     super#visit_declaration d;
@@ -54,7 +62,10 @@ class sanity_check_visitor = object
     | Global g ->
         begin match g.index with
         | Some _ -> ()
-        | None -> failwith "global variable index not set"
+        | None -> compiler_bug "global variable index not set" (Some(ASTDeclaration(Global g)))
         end
     | _ -> ()
 end
+
+let check_invariants decls =
+  (new sanity_check_visitor)#visit_toplevel decls
