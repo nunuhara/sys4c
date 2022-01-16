@@ -14,6 +14,7 @@
  * along with this program; if not, see <http://gnu.org/licenses/>.
  *)
 
+open Core
 open Printf
 
 type unary_op =
@@ -228,7 +229,7 @@ class ivisitor = object (self)
     method enter_function decl =
       self#push;
       current_function <- Some decl;
-      List.iter self#push_var decl.params
+      List.iter decl.params ~f:self#push_var
 
     method leave_function =
       self#pop;
@@ -242,10 +243,10 @@ class ivisitor = object (self)
       | None -> None
 
     method get name =
-      let var_eq (v : variable) = String.equal v.name name in
+      let var_eq _ (v : variable) = String.equal v.name name in
       let rec search vars rest =
-        match List.find_opt var_eq vars with
-        | Some v -> Some v
+        match List.findi vars ~f:var_eq with
+        | Some (_, v) -> Some v
         | None ->
             begin match rest with
             | [] -> None
@@ -286,9 +287,9 @@ class ivisitor = object (self)
         self#visit_expression obj
     | Call (f, args, _) ->
         self#visit_expression f;
-        List.iter self#visit_expression args
+        List.iter args ~f:self#visit_expression
     | New (_, args, _) ->
-        List.iter self#visit_expression args
+        List.iter args ~f:self#visit_expression
     | This -> ()
 
   method visit_statement (s : statement) =
@@ -298,7 +299,7 @@ class ivisitor = object (self)
         self#visit_expression e
     | Compound (items) ->
         environment#push;
-        List.iter self#visit_block_item items;
+        List.iter items ~f:self#visit_block_item;
         environment#pop
     | Labeled (_, a) ->
         self#visit_statement a
@@ -316,38 +317,38 @@ class ivisitor = object (self)
         environment#push;
         self#visit_block_item init;
         self#visit_expression test;
-        Option.iter self#visit_expression inc;
+        Option.iter inc ~f:self#visit_expression;
         self#visit_statement body;
         environment#pop
     | Goto (_) -> ()
     | Continue -> ()
     | Break -> ()
     | Return (e) ->
-        Option.iter self#visit_expression e
+        Option.iter e ~f:self#visit_expression
     | MessageCall (_, _, _) -> ()
     | RefAssign (a, b) ->
         self#visit_expression a;
         self#visit_expression b
 
   method visit_local_variable v =
-    List.iter self#visit_expression v.array_dim;
-    Option.iter self#visit_expression v.initval;
+    List.iter v.array_dim ~f:self#visit_expression;
+    Option.iter v.initval ~f:self#visit_expression;
     environment#push_var v
 
   method visit_block_item item =
     match item with
     | Statement (s) -> self#visit_statement s
-    | Declarations (ds) -> List.iter self#visit_local_variable ds
+    | Declarations (ds) -> List.iter ds ~f:self#visit_local_variable
 
   method visit_fundecl f =
     environment#enter_function f;
-    List.iter self#visit_block_item f.body;
+    List.iter f.body ~f:self#visit_block_item;
     environment#leave_function
 
   method visit_declaration d =
     let visit_vardecl d =
-      List.iter self#visit_expression d.array_dim;
-      Option.iter self#visit_expression d.initval
+      List.iter d.array_dim ~f:self#visit_expression;
+      Option.iter d.initval ~f:self#visit_expression
     in
     match d with
     | Global (g) -> visit_vardecl g
@@ -361,13 +362,13 @@ class ivisitor = object (self)
           | Destructor (f) -> self#visit_fundecl f
           | Method (f) -> self#visit_fundecl f
         in
-        List.iter visit_structdecl s.decls
+        List.iter s.decls ~f:visit_structdecl
     | Enum (enum) ->
-        let visit_enumval (_, expr) = Option.iter self#visit_expression expr in
-        List.iter visit_enumval enum.values
+        let visit_enumval (_, expr) = Option.iter expr ~f:self#visit_expression in
+        List.iter enum.values ~f:visit_enumval
 
   method visit_toplevel decls =
-    List.iter self#visit_declaration decls
+    List.iter decls ~f:self#visit_declaration
 
 end
 
@@ -498,8 +499,8 @@ let rec stmt_to_string (stmt : statement) =
       (expr_to_string e) ^ ";"
   | Compound (items) ->
       items
-      |> List.map block_item_to_string
-      |> List.fold_left (^) ""
+      |> List.map ~f:block_item_to_string
+      |> List.fold ~init:"" ~f:(^)
   | Labeled (label, stmt) ->
       sprintf "%s: %s" label (stmt_to_string stmt)
   | If (test, body, alt) ->
@@ -541,7 +542,7 @@ let rec stmt_to_string (stmt : statement) =
 and var_to_string' d =
   let t = type_spec_to_string d.type_spec in
   let dim_iter l r = l ^ (sprintf "[%s]" (expr_to_string r)) in
-  let dims = List.fold_left dim_iter "" d.array_dim in
+  let dims = List.fold d.array_dim ~init:"" ~f:dim_iter in
   let init =
     match d.initval with
     | None -> ""
@@ -553,7 +554,7 @@ and var_to_string d =
 and block_item_to_string item =
   match item with
   | Statement (s) -> stmt_to_string s
-  | Declarations (ds) -> List.fold_left (^) "" (List.map var_to_string ds)
+  | Declarations (ds) -> List.fold (List.map ds ~f:var_to_string) ~init:"" ~f:(^)
 
 let decl_to_string d =
   let params_to_string = function
@@ -566,7 +567,7 @@ let decl_to_string d =
         sprintf "(%s)" (loop (var_to_string' p) ps)
   in
   let block_to_string block =
-    List.fold_left (^) "" (List.map block_item_to_string block)
+    List.fold (List.map block ~f:block_item_to_string) ~init:"" ~f:(^)
   in
   match d with
   | Global (d) ->
@@ -598,7 +599,7 @@ let decl_to_string d =
             let body = block_to_string d.body in
             sprintf "%s %s%s { %s }" return d.name params body
       in
-      let body = List.fold_left (^) "" (List.map sdecl_to_string d.decls) in
+      let body = List.fold (List.map d.decls ~f:sdecl_to_string) ~init:"" ~f:(^) in
       sprintf "struct %s { %s };" d.name body
   | Enum (d) ->
       let enumval_to_string = function
@@ -606,7 +607,7 @@ let decl_to_string d =
         | (s, Some e) -> sprintf "%s = %s" s (expr_to_string e)
       in
       let enumvals_fold l r = l ^ ", " ^ r in
-      let body = List.fold_left enumvals_fold "" (List.map enumval_to_string d.values) in
+      let body = List.fold (List.map d.values ~f:enumval_to_string) ~init:"" ~f:enumvals_fold in
       let name =
         match d.name with
         | None -> ""
@@ -649,7 +650,7 @@ let jaf_to_ain_function j_f (a_f:Alice.Ain.Function.t) =
     Alice.Ain.Variable.make_local v.name (jaf_to_ain_type v.type_spec)
   in
   a_f.nr_args <- List.length j_f.params;
-  a_f.vars <- List.map jaf_to_ain_local j_f.params;
+  a_f.vars <- List.map j_f.params ~f:jaf_to_ain_local;
   a_f.return_type <- jaf_to_ain_type j_f.return;
   a_f
 
@@ -661,7 +662,7 @@ let jaf_to_ain_struct j_s (a_s:Alice.Ain.Struct.t) =
   (* TODO: interfaces *)
   (* TODO: constructor *)
   (* TODO: destructor *)
-  a_s.members <- List.filter_map filter_members j_s.decls;
+  a_s.members <- List.filter_map j_s.decls ~f:filter_members;
   (* TODO: vmethods *)
   a_s
 
@@ -670,6 +671,6 @@ let jaf_to_ain_functype j_f (a_f:Alice.Ain.FunctionType.t) =
     Alice.Ain.Variable.make_local v.name (jaf_to_ain_type v.type_spec)
   in
   a_f.nr_arguments <- List.length j_f.params;
-  a_f.variables <- List.map jaf_to_ain_local j_f.params;
+  a_f.variables <- List.map j_f.params ~f:jaf_to_ain_local;
   a_f.return_type <- jaf_to_ain_type j_f.return;
   a_f

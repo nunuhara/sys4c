@@ -1,6 +1,6 @@
 (executable
  (name sys4c)
- (libraries alice))
+ (libraries core alice))
 
 (ocamllex lexer)
 (menhir (modules parser))

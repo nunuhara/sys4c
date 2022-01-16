@@ -14,8 +14,9 @@
  * along with this program; if not, see <http://gnu.org/licenses/>.
  *)
 
+open Core
 open Jaf
-open Error
+open CompileError
 
 (*
  * AST pass over top-level declarations register names in the .ain file.
@@ -70,7 +71,7 @@ class type_declare_visitor ain = object (self)
               self#declare_function f
           | MemberDecl _ -> ()
         in
-        List.iter visit_decl s.decls
+        List.iter s.decls ~f:visit_decl
     | Enum (_) ->
         compile_error "enum types not yet supported" (ASTDeclaration decl)
 end
@@ -113,7 +114,7 @@ class type_resolve_visitor ain = object (self)
 
   method! visit_declaration decl =
     let function_class (f:fundecl) =
-      match String.split_on_char '@' f.name with
+      match String.split_on_chars f.name ~on:['@'] with
       | hd :: _ ->
           begin match Alice.Ain.get_struct' ain hd with
           | -1 -> None
@@ -123,7 +124,7 @@ class type_resolve_visitor ain = object (self)
     in
     let resolve_function f =
       self#resolve_typespec f.return (ASTDeclaration(Function f));
-      List.iter (fun v -> self#resolve_typespec v.type_spec (ASTVariable v)) f.params
+      List.iter f.params ~f:(fun v -> self#resolve_typespec v.type_spec (ASTVariable v))
     in
     begin match decl with
     | Function (f) ->
@@ -142,7 +143,7 @@ class type_resolve_visitor ain = object (self)
           | Method (f) ->
               resolve_function f
         in
-        List.iter resolve_structdecl s.decls
+        List.iter s.decls ~f:resolve_structdecl
     | Enum (_) ->
         compile_error "enum types not yet supported" (ASTDeclaration decl)
     end;

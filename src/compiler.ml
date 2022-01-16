@@ -14,9 +14,10 @@
  * along with this program; if not, see <http://gnu.org/licenses/>.
  *)
 
+open Core
 open Jaf
 open Bytecode
-open Error
+open CompileError
 
 type loop = {
   mutable loop_addr : int option;
@@ -47,17 +48,17 @@ class jaf_compiler ain = object (self)
   (** Begin a scope. Variables created within a scope are deleted when the
       scope ends. *)
   method start_scope =
-    Stack.push { vars=[]; labels=[]; gotos=[] } scopes
+    Stack.push scopes { vars=[]; labels=[]; gotos=[] }
 
   (** End a scope. Deletes variable created within the scope. *)
   method end_scope =
-    let scope = Stack.pop scopes in
+    let scope = Stack.pop_exn scopes in
     (* update goto addresses *)
     let rec update_gotos gotos unresolved =
       match gotos with
       | ((name, addr_loc, _) as goto)::rest ->
-          begin match List.find_opt (fun (label_name, _) -> name = label_name) scope.labels with
-          | Some (_, addr) ->
+          begin match List.findi scope.labels ~f:(fun _ (label_name, _) -> String.equal name label_name) with
+          | Some (_, (_, addr)) ->
               self#write_address_at addr_loc addr;
               update_gotos rest unresolved
           | None ->
@@ -67,7 +68,7 @@ class jaf_compiler ain = object (self)
     in
     let unresolved = update_gotos scope.gotos [] in
     (* unresolved gotos are moved to parent scope *)
-    begin match (Stack.top_opt scopes, unresolved) with
+    begin match (Stack.top scopes, unresolved) with
     | (_, []) -> ()
     | (None, (_, _, stmt)::_) ->
         compile_error "Unresolved label" (ASTStatement stmt)
@@ -79,7 +80,7 @@ class jaf_compiler ain = object (self)
              return. This code is emitted only to ensure that destructors are
              called at the correct time; hence function-scoped variables need
              not be deleted here. *)
-    begin match Stack.top_opt scopes with
+    begin match Stack.top scopes with
     | None -> ()
     | Some _ ->
         let delete_var (v:Alice.Ain.Variable.t) =
@@ -98,45 +99,45 @@ class jaf_compiler ain = object (self)
               end
           | _ -> ()
         in
-        List.iter delete_var (List.rev scope.vars)
+        List.iter (List.rev scope.vars) ~f:delete_var
     end
 
   (** Add a variable to the current scope. *)
   method scope_add_var v =
-    match Stack.top_opt scopes with
+    match Stack.top scopes with
     | Some scope -> scope.vars <- v::scope.vars
     | None -> compiler_bug "tried to add variable to null scope" None
 
   (** Add a label to the current scope. *)
   method scope_add_label name =
-    let scope = Stack.top scopes in
+    let scope = Stack.top_exn scopes in
     scope.labels <- (name, current_address)::scope.labels
 
   (** Add a goto address location to the current scope *)
   method scope_add_goto name addr_loc stmt =
-    let scope = Stack.top scopes in
+    let scope = Stack.top_exn scopes in
     scope.gotos <- (name, addr_loc, stmt)::scope.gotos
 
   (** Begin a loop. *)
   method start_loop addr =
-    Stack.push { loop_addr=Some addr; break_addrs=[] } loops
+    Stack.push loops { loop_addr=Some addr; break_addrs=[] }
 
   (** End the current loop. Updates 'break' addresses. *)
   method end_loop =
-    let loop = Stack.pop loops in
-    List.iter (fun addr -> self#write_address_at addr current_address) loop.break_addrs
+    let loop = Stack.pop_exn loops in
+    List.iter loop.break_addrs ~f:(fun addr -> self#write_address_at addr current_address)
 
   (** Retrieves the continue address for the current loop (i.e. the address
       that 'continue' statements should jump to). *)
   method get_continue_addr node =
-    match Stack.top_opt loops with
+    match Stack.top loops with
     | Some { loop_addr=Some addr; _} -> addr
     | _ -> compile_error "'continue' statement outside of loop" node
 
   (** Push the location of a 32-bit integer that should be updated to the
       address of the current scope's end point. *)
   method push_break_addr addr node =
-    match Stack.top_opt loops with
+    match Stack.top loops with
     | Some loop -> loop.break_addrs <- addr::loop.break_addrs
     | None -> compile_error "'break' statement outside of loop" node
 
@@ -204,7 +205,7 @@ class jaf_compiler ain = object (self)
 
   method get_local i =
     match current_function with
-    | Some f -> List.nth f.vars i
+    | Some f -> List.nth_exn f.vars i
     | None   -> compiler_bug "get_local outside of function" None
 
   method compile_lock_peek =
@@ -329,11 +330,11 @@ class jaf_compiler ain = object (self)
     | Member (obj, _, Some (ClassVariable (_, member_no))) ->
         self#compile_lvalue obj;
         self#write_instruction1 PUSH member_no;
-        compile_lvalue_after (Option.get e.valuetype)
+        compile_lvalue_after (Option.value_exn e.valuetype)
     | Subscript (obj, index) ->
         self#compile_lvalue obj;
         self#compile_expression index;
-        compile_lvalue_after (Option.get e.valuetype)
+        compile_lvalue_after (Option.value_exn e.valuetype)
     | New (Struct(_, s_no), args, Some var_no) ->
         let s = Alice.Ain.Struct.of_int ain s_no in
         (* delete dummy variable *)
@@ -397,7 +398,7 @@ class jaf_compiler ain = object (self)
                 reference argument (string lvalue is a page+index, reference
                 argument is just the string page) *)
         if Alice.Ain.version_gte ain 14 0 then
-          begin match (Option.get expr.valuetype).data with
+          begin match (Option.value_exn expr.valuetype).data with
           | String -> self#write_instruction1 X_REF 1
           | _ -> ()
           end
@@ -409,7 +410,7 @@ class jaf_compiler ain = object (self)
     let compile_arg arg (var:Alice.Ain.Variable.t) =
       self#compile_argument arg var.value_type
     in
-    List.iter2 compile_arg args f.vars
+    List.iter2_exn args f.vars ~f:compile_arg
 
   (** Emit the code to call a method. The object upon which the method is to be
       called should already be on the stack before this code is executed. *)
@@ -437,7 +438,7 @@ class jaf_compiler ain = object (self)
     | ConstFloat f ->
         self#write_instruction1_float F_PUSH f
     | ConstChar s ->
-        if String.length s != 1 then
+        if not (String.length s = 1) then
           compile_error "Invalid character constant" (ASTExpression expr)
         else
           self#write_instruction1 PUSH (int_of_char (String.get s 0))
@@ -475,7 +476,7 @@ class jaf_compiler ain = object (self)
         self#compile_expression e;
         self#write_instruction0 COMPL
     | Unary (AddrOf, e) ->
-        begin match (Option.get e.valuetype).data with
+        begin match (Option.value_exn e.valuetype).data with
         | Function no -> self#write_instruction1 PUSH no
         | _ -> compiler_bug "invalid type for & operator" (Some(ASTExpression expr))
         end
@@ -550,7 +551,7 @@ class jaf_compiler ain = object (self)
     | Binary (op, a, b) ->
         self#compile_expression a;
         self#compile_expression b;
-        begin match ((Option.get a.valuetype).data, op) with
+        begin match ((Option.value_exn a.valuetype).data, op) with
         | (Int, Plus)      -> self#write_instruction0 ADD
         | (Int, Minus)     -> self#write_instruction0 SUB
         | (Int, Times)     -> self#write_instruction0 MUL
@@ -596,7 +597,7 @@ class jaf_compiler ain = object (self)
               | String -> 4
               | _ -> compiler_bug "invalid type for string formatting" (Some(ASTExpression expr))
             in
-            self#write_instruction1 S_MOD (int_of_t (Option.get b.valuetype).data)
+            self#write_instruction1 S_MOD (int_of_t (Option.value_exn b.valuetype).data)
         | (String, (Minus|Times|Divide|BitOr|BitXor|BitAnd|LShift|RShift|LogOr|LogAnd)) ->
             compiler_bug "invalid string operator" (Some(ASTExpression expr))
         | _ -> compiler_bug "invalid binary expression" (Some(ASTExpression expr))
@@ -604,7 +605,7 @@ class jaf_compiler ain = object (self)
     | Assign (op, lhs, rhs) ->
         self#compile_lvalue lhs;
         self#compile_expression rhs;
-        begin match ((Option.get lhs.valuetype).data, op) with
+        begin match ((Option.value_exn lhs.valuetype).data, op) with
         | ((Int|Bool), EqAssign)     -> self#write_instruction0 ASSIGN
         | ((Int|Bool), PlusAssign)   -> self#write_instruction0 PLUSA
         | ((Int|Bool), MinusAssign)  -> self#write_instruction0 MINUSA
@@ -627,7 +628,7 @@ class jaf_compiler ain = object (self)
         end
     | Seq (a, b) ->
         self#compile_expression a;
-        self#compile_pop (Option.get a.valuetype);
+        self#compile_pop (Option.value_exn a.valuetype);
         self#compile_expression b
     | Ternary (test, con, alt) ->
         self#compile_expression test;
@@ -640,8 +641,8 @@ class jaf_compiler ain = object (self)
         self#compile_expression alt;
         self#write_address_at jump_addr current_address
     | Cast (_, e) ->
-        let dst_t = (Option.get expr.valuetype).data in
-        let src_t = (Option.get e.valuetype).data in
+        let dst_t = (Option.value_exn expr.valuetype).data in
+        let src_t = (Option.value_exn e.valuetype).data in
         self#compile_expression e;
         begin match (src_t, dst_t) with
         | (Int, Int) -> ()
@@ -664,12 +665,12 @@ class jaf_compiler ain = object (self)
     | Subscript (obj, index) ->
         self#compile_lvalue obj;
         self#compile_expression index;
-        self#compile_dereference (Option.get expr.valuetype)
+        self#compile_dereference (Option.value_exn expr.valuetype)
     | Member (e, _, Some (ClassVariable (struct_no, member_no))) ->
         let struct_type = Alice.Ain.get_struct_by_index ain struct_no in
         self#compile_lvalue e;
         self#write_instruction1 PUSH member_no;
-        self#compile_dereference (List.nth struct_type.members member_no).value_type
+        self#compile_dereference (List.nth_exn struct_type.members member_no).value_type
     | Member (_, _, Some (ClassMethod (_, _))) ->
         compiler_bug "tried to compile method member expression" (Some(ASTExpression expr))
     | Member (_, _, Some (HLLFunction (_, _))) ->
@@ -794,7 +795,7 @@ class jaf_compiler ain = object (self)
         in
         let f = Alice.Ain.FunctionType.of_int ain no in
         self#compile_expression e;
-        List.iter2 compile_arg args f.variables;
+        List.iter2_exn args f.variables ~f:compile_arg;
         self#write_instruction1 PUSH no;
         self#write_instruction0 CALLFUNC2
     | Call (_, _, _) ->
@@ -813,7 +814,7 @@ class jaf_compiler ain = object (self)
         ()
     | Expression e ->
         self#compile_expression e;
-        self#compile_pop (Option.get e.valuetype)
+        self#compile_pop (Option.value_exn e.valuetype)
     | Compound items ->
         self#compile_block items
     | Labeled (name, s) ->
@@ -884,7 +885,7 @@ class jaf_compiler ain = object (self)
         begin match inc with
         | Some e ->
             self#compile_expression e;
-            self#compile_pop (Option.get e.valuetype);
+            self#compile_pop (Option.value_exn e.valuetype);
         | None -> ()
         end;
         self#write_instruction1 JUMP test_addr;
@@ -906,7 +907,7 @@ class jaf_compiler ain = object (self)
     | Return None ->
         self#write_instruction0 RETURN
     | Return (Some e) ->
-        begin match (Option.get current_function).return_type with
+        begin match (Option.value_exn current_function).return_type with
         | { is_ref=true; data=(Int|Float|Bool|LongInt|FuncType _) } ->
             self#compile_lvalue e;
             self#write_instruction0 DUP_U2;
@@ -934,7 +935,7 @@ class jaf_compiler ain = object (self)
         self#compile_variable_ref lhs;
         self#compile_delete_ref;
         self#compile_lvalue rhs;
-        begin match (Option.get lhs.valuetype).data with
+        begin match (Option.value_exn lhs.valuetype).data with
         | Int | Bool | Float | LongInt | FuncType _ ->
             (* NOTE: SDK compiler emits [DUP_U2; SP_INC; R_ASSIGN; POP; POP] here *)
             self#write_instruction0 R_ASSIGN;
@@ -956,8 +957,8 @@ class jaf_compiler ain = object (self)
     match decl.type_spec.qualifier with
     | Some Const -> ()
     | _ ->
-        self#scope_add_var (List.nth (Option.get current_function).vars (Option.get decl.index));
-        let v = self#get_local (Option.get decl.index) in
+        self#scope_add_var (List.nth_exn (Option.value_exn current_function).vars (Option.value_exn decl.index));
+        let v = self#get_local (Option.value_exn decl.index) in
         if v.value_type.is_ref then
           begin match v.value_type.data with
           | Int | Bool | Float | LongInt | FuncType _ ->
@@ -1054,7 +1055,7 @@ class jaf_compiler ain = object (self)
                         begin
                           self#compile_local_ref v.index;
                           self#write_instruction0 REF;
-                          self#compile_expression (List.hd decl.array_dim);
+                          self#compile_expression (List.hd_exn decl.array_dim);
                           self#compile_CALLHLL "Array" "Alloc" 1 (ASTVariable decl)
                         end
                   end
@@ -1072,7 +1073,7 @@ class jaf_compiler ain = object (self)
                       if has_dims then
                         begin
                           self#write_instruction0 DUP;
-                          self#compile_expression (List.hd decl.array_dim);
+                          self#compile_expression (List.hd_exn decl.array_dim);
                           self#write_instruction1 PUSH (-1);
                           self#write_instruction1 PUSH (-1);
                           self#write_instruction1 PUSH (-1);
@@ -1086,7 +1087,7 @@ class jaf_compiler ain = object (self)
                 begin
                   if has_dims then
                     begin
-                      List.iter self#compile_expression decl.array_dim;
+                      List.iter decl.array_dim ~f:self#compile_expression;
                       self#write_instruction1 PUSH (List.length decl.array_dim);
                       self#write_instruction0 A_ALLOC
                     end
@@ -1103,10 +1104,10 @@ class jaf_compiler ain = object (self)
   method compile_block (items:block_item list) =
     let compile_item = function
       | Statement stmt -> self#compile_statement stmt
-      | Declarations vars -> List.iter self#compile_variable_declaration vars
+      | Declarations vars -> List.iter vars ~f:self#compile_variable_declaration
     in
     self#start_scope;
-    List.iter compile_item items;
+    List.iter items ~f:compile_item;
     self#end_scope
 
   (** Emit the code for a default return value. *)
@@ -1134,7 +1135,7 @@ class jaf_compiler ain = object (self)
 
   (** Emit the code for a function. *)
   method compile_function (decl:fundecl) =
-    let index = Option.get decl.index in
+    let index = Option.value_exn decl.index in
     let func = Alice.Ain.get_function_by_index ain index in
     start_address <- current_address;
     func.address <- current_address + 6;
@@ -1172,12 +1173,12 @@ class jaf_compiler ain = object (self)
             | Destructor f -> self#compile_function f
             | Method f -> self#compile_function f
           in
-          List.iter compile_struct_decl d.decls
+          List.iter d.decls ~f:compile_struct_decl
       | Enum e ->
           (* TODO: built-in enum methods *)
           compile_error "Enums not implemented" (ASTDeclaration(Enum e))
     in
-    List.iter compile_decl decls;
+    List.iter decls ~f:compile_decl;
     self#write_buffer
 end
 

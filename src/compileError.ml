@@ -14,6 +14,7 @@
  * along with this program; if not, see <http://gnu.org/licenses/>.
  *)
 
+open Core
 open Jaf
 
 exception Type_error of Alice.Ain.Type.t * expression option * ast_node

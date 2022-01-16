@@ -14,8 +14,9 @@
  * along with this program; if not, see <http://gnu.org/licenses/>.
  *)
 
+open Core
 open Jaf
-open Error
+open CompileError
 
 class variable_alloc_visitor ctx = object (self)
   inherit ivisitor as super
@@ -26,7 +27,7 @@ class variable_alloc_visitor ctx = object (self)
     let rec search i (vars : variable list) =
       match vars with
       | hd::tl ->
-          if hd.name = name then i else search (i + 1) tl
+          if String.equal hd.name name then i else search (i + 1) tl
       | [] ->
           compiler_bug ("Undefined variable: " ^ name) None
     in
@@ -57,7 +58,7 @@ class variable_alloc_visitor ctx = object (self)
           index = Some (List.length vars)
         }
         in
-        expr.node <- New (t, args, Some (Option.get v.index));
+        expr.node <- New (t, args, Some (Option.value_exn v.index));
         vars <- v::vars
     | _ -> ()
     end
@@ -73,11 +74,11 @@ class variable_alloc_visitor ctx = object (self)
       Alice.Ain.Variable.make_local v.name (jaf_to_ain_type v.type_spec)
     in
     let add_vars (a_f : Alice.Ain.Function.t) =
-      a_f.vars <- List.map conv_var (List.rev vars);
+      a_f.vars <- List.map (List.rev vars) ~f:conv_var;
       a_f
     in
     (* add params to var list *)
-    List.iter (fun v -> vars <- v::vars) f.params;
+    List.iter f.params ~f:(fun v -> vars <- v::vars);
     super#visit_fundecl f;
     (* write updated fundecl to ain file *)
     begin match Alice.Ain.get_function ctx.ain f.name with

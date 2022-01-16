@@ -14,15 +14,15 @@
  * along with this program; if not, see <http://gnu.org/licenses/>.
  *)
 
+open Core
 open Printf
 open Jaf
-open Error
 
 let _ =
   let ctx = { ain=(Alice.Ain.create 12 0); const_vars=[] } in
   (*let ctx = { ain=(Alice.Ain.load "in.ain"); const_vars = [] } in*)
   try
-    let lexbuf = Lexing.from_channel stdin in
+    let lexbuf = Lexing.from_channel In_channel.stdin in
     while true do
       let result = Parser.main Lexer.token lexbuf in
       Declarations.register_type_declarations ctx result;
@@ -34,12 +34,12 @@ let _ =
       SanityCheck.check_invariants result; (* TODO: disable in release builds *)
       Compiler.compile ctx result;
       print_string "-> ";
-      List.iter (fun d -> print_string (decl_to_string d)) result;
-      print_newline();
-      flush stdout
+      List.iter result ~f:(fun d -> print_string (decl_to_string d));
+      Out_channel.newline stdout;
+      Out_channel.flush stdout
     done
   with
-  | Type_error (expected, actual, parent) ->
+  | CompileError.Type_error (expected, actual, parent) ->
       let s_expected = Alice.Ain.Type.to_string expected in
       let s_actual =
         match actual with
@@ -50,25 +50,25 @@ let _ =
             | Some t -> Alice.Ain.Type.to_string t
       in
       printf "Error: Type error: expected %s; got %s\n" s_expected s_actual;
-      Option.iter (fun e -> printf "\tat: %s\n" (expr_to_string e)) actual;
+      Option.iter actual ~f:(fun e -> printf "\tat: %s\n" (expr_to_string e));
       printf "\tin: %s\n" (ast_to_string parent);
       Alice.Ain.free ctx.ain;
       exit 1
-  | Undefined_variable (name, _) ->
+  | CompileError.Undefined_variable (name, _) ->
       printf "Error: Undefined variable: %s\n" name;
       Alice.Ain.free ctx.ain;
       exit 1
-  | Arity_error (f, args, parent) ->
+  | CompileError.Arity_error (f, args, parent) ->
       printf "Error: wrong number of arguments to function %s (expected %d; got %d)\n" f.name f.nr_args (List.length args);
       printf "\tin: %s\n" (ast_to_string parent);
       Alice.Ain.free ctx.ain;
       exit 1
-  | Not_lvalue_error (expr, parent) ->
+  | CompileError.Not_lvalue_error (expr, parent) ->
       printf "Error: not an lvalue: %s\n" (expr_to_string expr);
       printf "\tin: %s\n" (ast_to_string parent);
       Alice.Ain.free ctx.ain;
       exit 1
-  | Const_error (var) ->
+  | CompileError.Const_error (var) ->
       begin match var.initval with
       | Some _ -> printf "Error: value of const variable is not constant\n"
       | None   -> printf "Error: const variable lacks initializer\n"
@@ -76,12 +76,12 @@ let _ =
       printf "\tin: %s\n" (var_to_string var);
       Alice.Ain.free ctx.ain;
       exit 1
-  | CompileError (msg, node) ->
+  | CompileError.CompileError (msg, node) ->
       printf "Error: %s\n" msg;
       printf "\tin: %s\n" (ast_to_string node);
       Alice.Ain.free ctx.ain;
       exit 1
-  | CompilerBug (msg, node) ->
+  | CompileError.CompilerBug (msg, node) ->
       printf "Error: %s\n" msg;
       begin match node with
       | Some n -> printf "\tin: %s\n" (ast_to_string n)

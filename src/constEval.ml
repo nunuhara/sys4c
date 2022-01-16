@@ -14,8 +14,9 @@
  * along with this program; if not, see <http://gnu.org/licenses/>.
  *)
 
+open Core
 open Jaf
-open Error
+open CompileError
 
 let expr_replace dst expr =
   dst.valuetype <- expr.valuetype;
@@ -96,8 +97,8 @@ class const_eval_visitor ctx = object (self)
           match environment#get name with
           | Some v -> Some v
           | None ->
-              begin match List.find_opt (fun (v:variable) -> v.name = name) ctx.const_vars with
-              | Some v -> Some v
+              begin match List.findi ctx.const_vars ~f:(fun _ (v:variable) -> String.equal v.name name) with
+              | Some (_, v) -> Some v
               | None -> None
               end
         in
@@ -127,12 +128,19 @@ class const_eval_visitor ctx = object (self)
         | PostDec -> ()
         end
     | Binary (op, a, b) ->
-        let const_eq a b  = if a = b then 1 else 0 in
+        let mk_compare op = fun a b -> if op a b then 1 else 0 in
+        let const_eq = mk_compare (=) in
         let const_neq a b = if a = b then 0 else 1 in
-        let const_lt a b  = if a < b then 1 else 0 in
-        let const_gt a b  = if a > b then 1 else 0 in
-        let const_lte a b = if a <= b then 1 else 0 in
-        let const_gte a b = if a >= b then 1 else 0 in
+        let const_lt = mk_compare (<) in
+        let const_gt = mk_compare (<) in
+        let const_lte = mk_compare (<=) in
+        let const_gte = mk_compare (>=) in
+        let const_feq = mk_compare Float.equal in
+        let const_fneq a b = if Float.equal a b then 0 else 1 in
+        let const_flt = mk_compare Float.(<) in
+        let const_fgt = mk_compare Float.(>) in
+        let const_flte = mk_compare Float.(<=) in
+        let const_fgte = mk_compare Float.(>=) in
         let const_logor a b = if not (a = 0) then a else (if not (b = 0) then b else 0) in
         let const_logand a b = if not (a = 0) then (if not (b = 0) then 1 else 0) else 0 in
         begin match op with
@@ -141,12 +149,12 @@ class const_eval_visitor ctx = object (self)
         | Times -> const_binary expr a.node b.node (Some ( * )) (Some ( *.))
         | Divide -> const_binary expr a.node b.node (Some (/)) (Some (/.))
         | Modulo -> const_binary expr a.node b.node (Some (mod)) None
-        | Equal -> const_compare expr a.node b.node const_eq const_eq
-        | NEqual -> const_compare expr a.node b.node const_neq const_neq
-        | LT -> const_compare expr a.node b.node const_lt const_lt
-        | GT -> const_compare expr a.node b.node const_gt const_gt
-        | LTE -> const_compare expr a.node b.node const_lte const_lte
-        | GTE -> const_compare expr a.node b.node const_gte const_gte
+        | Equal -> const_compare expr a.node b.node const_eq const_feq
+        | NEqual -> const_compare expr a.node b.node const_neq const_fneq
+        | LT -> const_compare expr a.node b.node const_lt const_flt
+        | GT -> const_compare expr a.node b.node const_gt const_fgt
+        | LTE -> const_compare expr a.node b.node const_lte const_flte
+        | GTE -> const_compare expr a.node b.node const_gte const_fgte
         | LogOr -> const_binary expr a.node b.node (Some const_logor) None
         | LogAnd -> const_binary expr a.node b.node (Some const_logand) None
         | BitOr -> const_binary expr a.node b.node (Some (lor)) None
@@ -199,7 +207,7 @@ class const_eval_visitor ctx = object (self)
       | None -> const_error g
     in
     (* XXX: evaluate all global constants first *)
-    List.iter eval_global ctx.const_vars;
+    List.iter ctx.const_vars ~f:eval_global;
     super#visit_toplevel decls
 
   method! visit_expression expr =

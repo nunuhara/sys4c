@@ -14,8 +14,9 @@
  * along with this program; if not, see <http://gnu.org/licenses/>.
  *)
 
+open Core
 open Jaf
-open Error
+open CompileError
 
 let rec type_equal (expected:Alice.Ain.Type.data) (actual:Alice.Ain.Type.data) =
   match (expected, actual) with
@@ -98,8 +99,8 @@ class type_analyze_visitor ctx = object (self)
       | _ -> ()
     in
     match e.node with
-    | Ident (_, _) -> check_lvalue_type (Option.get e.valuetype).data
-    | Member (_, _, _) -> check_lvalue_type (Option.get e.valuetype).data
+    | Ident (_, _) -> check_lvalue_type (Option.value_exn e.valuetype).data
+    | Member (_, _, _) -> check_lvalue_type (Option.value_exn e.valuetype).data
     | Subscript (_, _) -> ()
     | New (_, _, _) -> ()
     | _ -> not_an_lvalue_error e parent
@@ -113,7 +114,7 @@ class type_analyze_visitor ctx = object (self)
      * functype of the variable (if the prototypes match).
      *)
     | Alice.Ain.Type.FuncType (ft_i) ->
-        begin match (Option.get rhs.valuetype) with
+        begin match (Option.value_exn rhs.valuetype) with
         | { data=Alice.Ain.Type.Function (f_i); is_ref=true } ->
             let ft = Alice.Ain.FunctionType.of_int ctx.ain ft_i in
             let f = Alice.Ain.Function.of_int ctx.ain f_i in
@@ -131,10 +132,10 @@ class type_analyze_visitor ctx = object (self)
     let check = type_check (ASTExpression expr) in
     let check_numeric = type_check_numeric (ASTExpression expr) in
     let check_struct = type_check_struct (ASTExpression expr) in
-    let check_expr a b = check (Option.get a.valuetype).data b in
+    let check_expr a b = check (Option.value_exn a.valuetype).data b in
     (* check function call arguments *)
     let check_call (f:Alice.Ain.Function.t) args =
-      if f.nr_args != (List.length args) then
+      if not (f.nr_args = (List.length args)) then
         arity_error f args (ASTExpression expr)
       else if f.nr_args > 0 then begin
         (* `take` not in standard library... *)
@@ -152,7 +153,7 @@ class type_analyze_visitor ctx = object (self)
         let check_arg a (v:Alice.Ain.Variable.t) =
           check v.value_type.data a
         in
-        List.iter2 check_arg args (take f.nr_args f.vars)
+        List.iter2_exn args (take f.nr_args f.vars) ~f:check_arg
       end
     in
     let set_valuetype spec =
@@ -188,8 +189,8 @@ class type_analyze_visitor ctx = object (self)
             expr.node <- Ident (name, Some (LocalVariable (-1)));
             set_valuetype { data=v.type_spec.data; qualifier=None }
         | None ->
-            begin match List.find_opt (fun (v:variable) -> v.name = name) ctx.const_vars with
-            | Some v ->
+            begin match List.findi ctx.const_vars ~f:(fun _ (v:variable) -> String.equal v.name name) with
+            | Some (_, v) ->
                 expr.node <- Ident (name, Some GlobalConstant);
                 set_valuetype { data=v.type_spec.data; qualifier=None }
             | None ->
@@ -218,12 +219,12 @@ class type_analyze_visitor ctx = object (self)
         begin match op with
         | UPlus | UMinus | PreInc | PreDec | PostInc | PostDec ->
             check_numeric e;
-            expr.valuetype <- Some (Option.get e.valuetype)
+            expr.valuetype <- Some (Option.value_exn e.valuetype)
         | LogNot | BitNot ->
             check Int e;
-            expr.valuetype <- Some (Option.get e.valuetype)
+            expr.valuetype <- Some (Option.value_exn e.valuetype)
         | AddrOf ->
-            begin match (Option.get e.valuetype).data with
+            begin match (Option.value_exn e.valuetype).data with
             | Function i ->
                 expr.valuetype <- Some (Alice.Ain.Type.make ~is_ref:true (Function i))
             | _ ->
@@ -241,10 +242,10 @@ class type_analyze_visitor ctx = object (self)
             check Int a;
             check Int b
         | Modulo ->
-            begin match (Option.get a.valuetype).data with
+            begin match (Option.value_exn a.valuetype).data with
             | String ->
                 (* TODO: check type matches format specifier if format string is a literal *)
-                begin match (Option.get b.valuetype).data with
+                begin match (Option.value_exn b.valuetype).data with
                 | Int | Float | Bool | LongInt | String -> ()
                 | _ -> data_type_error Int (Some b) (ASTExpression expr)
                 end
@@ -254,7 +255,7 @@ class type_analyze_visitor ctx = object (self)
                 data_type_error Int (Some a) (ASTExpression expr)
             end
         | Equal | NEqual ->
-            begin match (Option.get a.valuetype).data with
+            begin match (Option.value_exn a.valuetype).data with
             | String ->
                 check String b
             | _ ->
@@ -269,7 +270,7 @@ class type_analyze_visitor ctx = object (self)
         self#check_lvalue lhs (ASTExpression expr);
         begin match op with
         | EqAssign ->
-            self#check_assign (ASTExpression expr) (Option.get lhs.valuetype).data rhs
+            self#check_assign (ASTExpression expr) (Option.value_exn lhs.valuetype).data rhs
         | PlusAssign | MinusAssign | TimesAssign | DivideAssign ->
             check_numeric lhs;
             check_numeric rhs;
@@ -288,12 +289,12 @@ class type_analyze_visitor ctx = object (self)
         check_expr con alt;
         expr.valuetype <- con.valuetype
     | Cast (t, e) ->
-        if not (type_castable t (Option.get e.valuetype).data) then
+        if not (type_castable t (Option.value_exn e.valuetype).data) then
           data_type_error (jaf_to_ain_data_type t) (Some e) (ASTExpression expr);
         set_valuetype { data=t; qualifier=None }
     | Subscript (obj, i) ->
         check Int i;
-        begin match (Option.get obj.valuetype).data with
+        begin match (Option.value_exn obj.valuetype).data with
         | Array t ->
             expr.valuetype <- Some t
         | _ ->
@@ -334,11 +335,11 @@ class type_analyze_visitor ctx = object (self)
     (* member variable OR method *)
     | Member (obj, member_name, _) ->
         let struc = Alice.Ain.get_struct_by_index ctx.ain (check_struct obj) in
-        let check_member (m : Alice.Ain.Variable.t) =
+        let check_member _ (m : Alice.Ain.Variable.t) =
           String.equal m.name member_name
         in
-        begin match List.find_opt check_member struc.members with
-        | Some member ->
+        begin match List.findi struc.members ~f:check_member with
+        | Some (_, member) ->
             expr.node <- Member (obj, member_name, Some (ClassVariable (struc.index, member.index)));
             expr.valuetype <- Some member.value_type
         | None ->
@@ -387,7 +388,7 @@ class type_analyze_visitor ctx = object (self)
         expr.valuetype <- Some f.return_type
     (* functype call *)
     | Call (e, args, _) ->
-        begin match (Option.get e.valuetype).data with
+        begin match (Option.value_exn e.valuetype).data with
         | FuncType no ->
             let f = Alice.Ain.function_of_functype_index ctx.ain no in
             check_call f args;
@@ -402,7 +403,7 @@ class type_analyze_visitor ctx = object (self)
             (* TODO: look up the correct constructor for given arguments *)
             begin match (Alice.Ain.Struct.of_int ctx.ain i).constructor with
             | -1 ->
-                if (List.length args) != 0 then
+                if not ((List.length args) = 0) then
                   (* TODO: signal error properly here *)
                   compile_error "Arguments provided to default constructor" (ASTExpression expr);
             | no ->
@@ -477,16 +478,16 @@ class type_analyze_visitor ctx = object (self)
             | Some v ->
                 begin match v.type_spec.qualifier with
                 | Some Ref ->
-                    type_check (ASTStatement stmt) (Option.get lhs.valuetype).data rhs
+                    type_check (ASTStatement stmt) (Option.value_exn lhs.valuetype).data rhs
                 | _ ->
-                    ref_type_error (Option.get rhs.valuetype).data (Some lhs) (ASTStatement stmt)
+                    ref_type_error (Option.value_exn rhs.valuetype).data (Some lhs) (ASTStatement stmt)
                 end
             | None ->
                 undefined_variable_error name (ASTStatement stmt)
             end
         | _ ->
             (* FIXME? this isn't really a _type_ error *)
-            ref_type_error (Option.get rhs.valuetype).data (Some lhs) (ASTStatement stmt)
+            ref_type_error (Option.value_exn rhs.valuetype).data (Some lhs) (ASTStatement stmt)
         end
     end
 
@@ -505,10 +506,10 @@ class type_analyze_visitor ctx = object (self)
     if (nr_dims > 0) && (Option.is_some var.initval) then
       compile_error "Initializer provided for array with explicit dimensions" (ASTVariable var);
     (* Check that number of dims matches rank of array *)
-    if (nr_dims > 0) && (nr_dims != rank) then
+    if (nr_dims > 0) && (not (nr_dims = rank)) then
       compile_error "Number of array dimensions does not match array rank" (ASTVariable var);
     (* Check that array dims are integers *)
-    List.iter (fun e -> type_check (ASTVariable var) Int e) var.array_dim;
+    List.iter var.array_dim ~f:(fun e -> type_check (ASTVariable var) Int e);
     (* Check initval matches declared type *)
     begin match var.initval with
     | Some expr ->
@@ -547,36 +548,36 @@ class type_analyze_visitor ctx = object (self)
       in
       (* full type comparison (including ref) *)
       let arg_type_equal (a:Alice.Ain.Type.t) (b:Alice.Ain.Type.t) =
-        (a.is_ref = b.is_ref) && (type_equal a.data b.data)
+        (Bool.equal a.is_ref b.is_ref) && (type_equal a.data b.data)
       in
       let a_args = take_arg_types a.nr_args a.vars in
       let b_args = take_arg_types b.nr_args b.vars in
       (a.nr_args = b.nr_args)
-      && (List.for_all2 arg_type_equal a_args b_args)
+      && (List.for_all2_exn a_args b_args ~f:arg_type_equal)
       && (arg_type_equal a.return_type b.return_type)
     in
     super#visit_fundecl f;
     begin match f.return.qualifier with
     | Some Override ->
         let child = Alice.Ain.Function.create f.name |> jaf_to_ain_function f in
-        let parent = Alice.Ain.get_function_by_index ctx.ain (Option.get f.super_index) in
+        let parent = Alice.Ain.get_function_by_index ctx.ain (Option.value_exn f.super_index) in
         if not (fundecl_equal child parent) then
           compile_error "Override function has incorrect signature" (ASTDeclaration(Function f))
     | Some Const ->
         compile_error "Function cannot be declared const" (ASTDeclaration(Function f))
     | _ -> ()
     end;
-    if f.name = "main" then
+    if String.equal f.name "main" then
       begin match (f.return, f.params) with
       | ({data=Int; qualifier=(None|Some Override)}, []) ->
           ()
       | _ ->
           compile_error "Invalid declaration of 'main' function" (ASTDeclaration(Function f))
       end
-    else if f.name = "message" then
+    else if String.equal f.name "message" then
       begin match f.return with
       | {data=Void; qualifier=(None|Some Override)} ->
-          begin match List.map (fun v -> v.type_spec) f.params with
+          begin match List.map f.params ~f:(fun v -> v.type_spec) with
           | [{data=Int; qualifier=None}; {data=Int; qualifier=None}; {data=String; qualifier=None}] ->
               ()
           | _ ->

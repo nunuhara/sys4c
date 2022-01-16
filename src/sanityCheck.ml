@@ -15,7 +15,7 @@
  *)
 
 open Jaf
-open Error
+open CompileError
 
 class sanity_check_visitor = object
   inherit ivisitor as super

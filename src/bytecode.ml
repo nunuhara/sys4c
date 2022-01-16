@@ -14,6 +14,8 @@
  * along with this program; if not, see <http://gnu.org/licenses/>.
  *)
 
+open Core
+
 type opcode =
   | PUSH
   | POP
@@ -1236,7 +1238,7 @@ let function_of_syscall sys =
       in
       r
     in
-    List.map2 make_var types (List.init (List.length types) (~+))
+    List.map2_exn types (List.init (List.length types) ~f:(~+)) ~f:make_var
   in
   let (default:Alice.Ain.Function.t) =
     { index       = -1;
@@ -1397,7 +1399,7 @@ let function_of_builtin builtin =
     { default with
       name = name;
       nr_args = List.length arg_types;
-      vars = List.map2 make_var arg_types (List.init (List.length arg_types) (~+));
+      vars = List.map2_exn arg_types (List.init (List.length arg_types) ~f:(~+)) ~f:make_var;
       return_type = return_type
     }
   in

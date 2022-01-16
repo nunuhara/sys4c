@@ -8,17 +8,29 @@ somewhat more mature compiler in alice-tools (written in C).
 Building
 --------
 
-First install the dependencies:
+The following dependencies should be installed either via your system's
+package manager or manually:
 
-* OCaml
-* dune
-* menhir
 * make
 * meson
 * libpng
 * libturbojpeg
 * libwebp
 * zlib
+
+e.g. on debian,
+
+    # apt install make meson libpng-dev libturbojpeg0-dev libwebp-dev zlib1g-dev
+
+The following dependencies should be installed via opam:
+
+* ocaml
+* core
+* ctypes-foreign
+* dune
+* menhir
+
+    $ opam install core ctypes-foreign dune menhir
 
 Then fetch the git submodules,
 
