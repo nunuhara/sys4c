@@ -65,7 +65,7 @@ let func typespec name params body =
 %token GOTO CONTINUE BREAK RETURN
 %token CONST REF OVERRIDE ARRAY WRAP FUNCTYPE STRUCT ENUM
 
-%token DOLLAR
+%token EOF
 
 %nonassoc IFX
 %nonassoc ELSE
@@ -76,8 +76,7 @@ let func typespec name params body =
 %%
 
 main
-  (* XXX: DOLLAR for testing only; to be removed *)
-  : external_declaration+ DOLLAR { List.concat $1 }
+  : external_declaration+ EOF { List.concat $1 }
   ;
 
 primary_expression

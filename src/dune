@@ -1,6 +1,7 @@
 (executable
  (name sys4c)
- (libraries core alice))
+ (libraries core alice)
+ (preprocess (pps ppx_jane)))
 
 (ocamllex lexer)
 (menhir (modules parser))

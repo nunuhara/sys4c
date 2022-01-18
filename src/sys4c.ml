@@ -18,26 +18,37 @@ open Core
 open Printf
 open Jaf
 
-let _ =
-  let ctx = { ain=(Alice.Ain.create 12 0); const_vars=[] } in
-  (*let ctx = { ain=(Alice.Ain.load "in.ain"); const_vars = [] } in*)
+let compile_jaf jaf_file ain_file output_file =
+  let ctx =
+    match ain_file with
+    | Some path -> { ain=Alice.Ain.load path; const_vars=[] }
+    | None -> { ain=Alice.Ain.create 12 0; const_vars=[] }
+  in
+  let do_compile file =
+    let lexbuf = Lexing.from_channel file in
+    let result = Parser.main Lexer.token lexbuf in
+    Declarations.register_type_declarations ctx result;
+    Declarations.resolve_types ctx result;
+    Declarations.define_types ctx result;
+    TypeAnalysis.check_types ctx result;
+    ConstEval.evaluate_constant_expressions ctx result;
+    VariableAlloc.allocate_variables ctx result;
+    SanityCheck.check_invariants result; (* TODO: disable in release builds *)
+    Compiler.compile ctx result;
+    print_string "-> ";
+    List.iter result ~f:(fun d -> print_string (decl_to_string d));
+    Out_channel.newline stdout;
+    Out_channel.flush stdout;
+    Alice.Ain.write ctx.ain output_file;
+    Alice.Ain.free ctx.ain
+  in
   try
-    let lexbuf = Lexing.from_channel In_channel.stdin in
-    while true do
-      let result = Parser.main Lexer.token lexbuf in
-      Declarations.register_type_declarations ctx result;
-      Declarations.resolve_types ctx result;
-      Declarations.define_types ctx result;
-      TypeAnalysis.check_types ctx result;
-      ConstEval.evaluate_constant_expressions ctx result;
-      VariableAlloc.allocate_variables ctx result;
-      SanityCheck.check_invariants result; (* TODO: disable in release builds *)
-      Compiler.compile ctx result;
-      print_string "-> ";
-      List.iter result ~f:(fun d -> print_string (decl_to_string d));
-      Out_channel.newline stdout;
-      Out_channel.flush stdout
-    done
+    begin match jaf_file with
+    | Some "-" | None ->
+        do_compile In_channel.stdin
+    | Some path ->
+        In_channel.with_file path ~f:(fun file -> do_compile file)
+    end
   with
   | CompileError.Type_error (expected, actual, parent) ->
       let s_expected = Alice.Ain.Type.to_string expected in
@@ -90,8 +101,43 @@ let _ =
       printf "(This is a compiler bug!)";
       Alice.Ain.free ctx.ain;
       exit 1
-  | Lexer.Eof ->
-      Alice.Ain.write ctx.ain "out.ain";
-      (* FIXME: EOF should be a token handled by the parser, not an exception *)
-      Alice.Ain.free ctx.ain;
-      exit 0
+
+(* Separate Compilation
+   --------------------
+
+   ** Will require either a custom build system (pje) or to expose some esoteric
+      functionality on the command line (e.g. 3.b below)
+
+   1 Do the Declarations passes for each source file to generate source_file.types.o
+   2 Combine all of the .types.o files into a single file, types.o
+   3 Recompile a source file IFF:
+       a. The source file was modified
+       b. Any of the unresolved type definitions in the existing .o file differ
+          from the corresponding definition in types.o
+   4 Link all .o files into a .ain file
+       * .o files are just incomplete .ain files
+       * Each .o file has it's code section appended to types.o
+           * A table mapping declaration indices from the .o file to the
+             corresponding indices in types.o is created
+           * After appending the code section, scan through every instruction
+             and update indices using the created table
+       * Once every .o file has been appended and updated, the output ain file
+         is complete
+*)
+
+let cmd_compile_jaf =
+  Command.basic
+    ~summary:"Compile a .jaf file"
+    ~readme: (fun () -> "Compile a .jaf file, optionally appending to an existing .ain file.")
+    Command.Let_syntax.(
+      let%map_open
+        jaf_file = anon (maybe ("jaf file" %: Filename.arg_type))
+      and ain_file = flag "-ain-file" (optional Filename.arg_type)
+        ~doc:"ain-file The input .ain file"
+      and output_file = flag "-output" (optional_with_default "out.ain" Filename.arg_type)
+        ~doc:"out-file The output .ain file"
+      in
+      fun () -> compile_jaf jaf_file ain_file output_file)
+
+let () =
+  Command.run ~version:"0.1" cmd_compile_jaf;

@@ -51,7 +51,7 @@ class type_declare_visitor ain = object (self)
     | FuncTypeDef (f) ->
         if Option.is_some (Alice.Ain.get_functype ain f.name) then
           compile_error "duplicate functype definition" (ASTDeclaration decl);
-        ignore (Alice.Ain.add_functype ain f.name)
+        ignore (Alice.Ain.add_functype ain f.name : Alice.Ain.FunctionType.t)
     | StructDef (s) ->
         if Option.is_some (Alice.Ain.get_struct ain s.name) then
           compile_error "duplicate struct definition" (ASTDeclaration decl);

@@ -16,7 +16,6 @@
 
 {
 open Parser
-exception Eof
 
 (* Unquote & splice string literal *)
 let process_string s =
@@ -103,7 +102,6 @@ rule token = parse
   | (hp h+ '.' p) as n      { F_CONSTANT(float_of_string n) }
   | ("'" sc* "'") as s      { C_CONSTANT(process_message s) }
   | ('"' sc* '"' ws*)+ as s { S_CONSTANT(process_string s) }
-  | '$'                     { DOLLAR } (* XXX: remove this later *)
   | '+'                     { PLUS }
   | '-'                     { MINUS }
   | '*'                     { TIMES }
@@ -182,4 +180,4 @@ rule token = parse
   | "enum"                  { ENUM }
   | l as c                  { IDENTIFIER(String.make 1 c) } (* TODO: check_type *)
   | (l a* at) as s          { IDENTIFIER(s) } (* TODO: check_type *)
-  | eof                     { raise Eof }
+  | eof                     { EOF }
