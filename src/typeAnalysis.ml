@@ -237,10 +237,12 @@ class type_analyze_visitor ctx = object (self)
             check_numeric a;
             check_numeric b;
             (* TODO: allow coercion *)
-            check_expr a b
+            check_expr a b;
+            expr.valuetype <- a.valuetype
         | LogOr | LogAnd | BitOr | BitXor | BitAnd | LShift | RShift ->
             check Int a;
-            check Int b
+            check Int b;
+            expr.valuetype <- a.valuetype
         | Modulo ->
             begin match (Option.value_exn a.valuetype).data with
             | String ->
@@ -253,7 +255,8 @@ class type_analyze_visitor ctx = object (self)
                 check Int b
             | _ ->
                 data_type_error Int (Some a) (ASTExpression expr)
-            end
+            end;
+            expr.valuetype <- a.valuetype
         | Equal | NEqual ->
             begin match (Option.value_exn a.valuetype).data with
             | String ->
@@ -263,9 +266,9 @@ class type_analyze_visitor ctx = object (self)
                 check_numeric b;
                 (* TODO: allow coercion *)
                 check_expr a b
-            end
+            end;
+            expr.valuetype <- Some (Alice.Ain.Type.make Int)
         end;
-        expr.valuetype <- a.valuetype
     | Assign (op, lhs, rhs) ->
         self#check_lvalue lhs (ASTExpression expr);
         begin match op with
