@@ -279,8 +279,7 @@ labeled_statement
   ;
 
 compound_statement
-  : LBRACE RBRACE { EmptyStatement }
-  | block { Compound $1 }
+  : block { match $1 with [] -> EmptyStatement | _ -> Compound $1 }
   ;
 
 block_item
@@ -288,7 +287,10 @@ block_item
   | statement { Statement ($1) }
   ;
 
-block: LBRACE nonempty_list(block_item) RBRACE { $2 }
+block
+  : LBRACE nonempty_list(block_item) RBRACE { $2 }
+  | LBRACE RBRACE { [] }
+  ;
 
 expression_statement
   : SEMICOLON { EmptyStatement }
