@@ -570,7 +570,7 @@ class type_analyze_visitor ctx = object (self)
     if String.equal f.name "main" then
       begin match (f.return, f.params) with
       | ({data=Int; qualifier=(None|Some Override)}, []) ->
-          ()
+          Alice.Ain.set_main_function ctx.ain (Option.value_exn f.index)
       | _ ->
           compile_error "Invalid declaration of 'main' function" (ASTDeclaration(Function f))
       end
@@ -579,7 +579,7 @@ class type_analyze_visitor ctx = object (self)
       | {data=Void; qualifier=(None|Some Override)} ->
           begin match List.map f.params ~f:(fun v -> v.type_spec) with
           | [{data=Int; qualifier=None}; {data=Int; qualifier=None}; {data=String; qualifier=None}] ->
-              ()
+              Alice.Ain.set_message_function ctx.ain (Option.value_exn f.index)
           | _ ->
               compile_error "Invalid declaration of 'message' function" (ASTDeclaration(Function f))
           end

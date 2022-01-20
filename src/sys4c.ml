@@ -35,10 +35,6 @@ let compile_jaf jaf_file ain_file output_file =
     VariableAlloc.allocate_variables ctx result;
     SanityCheck.check_invariants result; (* TODO: disable in release builds *)
     Compiler.compile ctx result;
-    print_string "-> ";
-    List.iter result ~f:(fun d -> print_string (decl_to_string d));
-    Out_channel.newline stdout;
-    Out_channel.flush stdout;
     Alice.Ain.write ctx.ain output_file;
     Alice.Ain.free ctx.ain
   in
