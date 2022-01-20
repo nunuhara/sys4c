@@ -371,7 +371,7 @@ module Variable = struct
   type t_c
   let t_c : t_c structure typ = structure "ain_variable"
   let name = field t_c "name" string
-  let name2 = field t_c "name2" string
+  let name2 = field t_c "name2" string_opt
   let value_type = field t_c "type" Type.t_c
   let has_initval = field t_c "has_initval" int32_t
   let initval = field t_c "initval" initval_c
@@ -382,7 +382,7 @@ module Variable = struct
   type t = {
     index : int;
     name : string;
-    name2 : string;
+    name2 : string option;
     value_type : Type.t;
     initval : initval option;
     group_index : int;
@@ -390,10 +390,10 @@ module Variable = struct
   }
 
   let make_local name value_type =
-    { index=0; name; name2=""; value_type; initval=None; group_index=0; var_type=0 }
+    { index=0; name; name2=Some ""; value_type; initval=None; group_index=0; var_type=0 }
 
   let make_member name value_type =
-    { index=0; name; name2=""; value_type; initval=None; group_index=0; var_type=1 }
+    { index=0; name; name2=Some ""; value_type; initval=None; group_index=0; var_type=1 }
 
   let of_ptr p i =
     { index = i;
@@ -1018,7 +1018,7 @@ let function_of_hll_function_index ain lib_no fun_no =
         let (r:Variable.t) =
           { index = 0;
             name = arg.name;
-            name2 = "";
+            name2 = Some "";
             value_type = arg.value_type;
             initval = None;
             group_index = 0;
