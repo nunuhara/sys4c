@@ -504,7 +504,12 @@ class type_analyze_visitor ctx = object (self)
     (* Check initval matches declared type *)
     begin match var.initval with
     | Some expr ->
-        self#check_assign (ASTVariable var) (jaf_to_ain_data_type var.type_spec.data) expr
+        begin match var.type_spec.qualifier with
+        | Some Ref ->
+            compile_error "Initial value for ref type not implemented" (ASTVariable var);
+        | _ ->
+            self#check_assign (ASTVariable var) (jaf_to_ain_data_type var.type_spec.data) expr
+        end
     | None -> ()
     end
 
