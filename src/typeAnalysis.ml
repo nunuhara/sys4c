@@ -135,25 +135,13 @@ class type_analyze_visitor ctx = object (self)
     let check_expr a b = check (Option.value_exn a.valuetype).data b in
     (* check function call arguments *)
     let check_call (f:Alice.Ain.Function.t) args =
-      if not (f.nr_args = (List.length args)) then
+      let params = Alice.Ain.Function.logical_parameters f in
+      let nr_params = List.length params in
+      if not (nr_params = (List.length args)) then
         arity_error f args (ASTExpression expr)
-      else if f.nr_args > 0 then begin
-        (* `take` not in standard library... *)
-        let take n lst =
-          let rec take_r n lst result =
-            if n = 0 then
-              List.rev result
-            else
-              match lst with
-              | [] -> compiler_bug "nr_args is > nr_vars" (Some(ASTExpression expr))
-              | x::xs -> take_r (n - 1) xs (x::result)
-          in
-          take_r n lst []
-        in
-        let check_arg a (v:Alice.Ain.Variable.t) =
-          check v.value_type.data a
-        in
-        List.iter2_exn args (take f.nr_args f.vars) ~f:check_arg
+      else if nr_params > 0 then begin
+        let check_arg a (v:Alice.Ain.Variable.t) = check v.value_type.data a in
+        List.iter2_exn args params ~f:check_arg
       end
     in
     let set_valuetype spec =

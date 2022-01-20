@@ -645,12 +645,25 @@ and jaf_to_ain_type spec =
   in
   Alice.Ain.Type.make ~is_ref (jaf_to_ain_data_type spec.data)
 
-let jaf_to_ain_function j_f (a_f:Alice.Ain.Function.t) =
-  let jaf_to_ain_local (v:variable) =
-    Alice.Ain.Variable.make_local v.name (jaf_to_ain_type v.type_spec)
+let jaf_to_ain_parameters j_p =
+  let rec convert_params (params:variable list) (result:Alice.Ain.Variable.t list) =
+    match params with
+    | [] -> List.rev result
+    | x::xs ->
+        let var = Alice.Ain.Variable.make_local x.name (jaf_to_ain_type x.type_spec) in
+        begin match x.type_spec with
+        | { data=(Int|Bool|Float|FuncType(_,_)); qualifier=Some Ref } ->
+            let void = Alice.Ain.Variable.make_local "<void>" (Alice.Ain.Type.make Void) in
+            convert_params xs (void::var::result)
+        | _ ->
+            convert_params xs (var::result)
+        end
   in
-  a_f.nr_args <- List.length j_f.params;
-  a_f.vars <- List.map j_f.params ~f:jaf_to_ain_local;
+  convert_params j_p []
+
+let jaf_to_ain_function j_f (a_f:Alice.Ain.Function.t) =
+  a_f.vars <- jaf_to_ain_parameters j_f.params;
+  a_f.nr_args <- List.length a_f.vars;
   a_f.return_type <- jaf_to_ain_type j_f.return;
   a_f
 
@@ -667,10 +680,7 @@ let jaf_to_ain_struct j_s (a_s:Alice.Ain.Struct.t) =
   a_s
 
 let jaf_to_ain_functype j_f (a_f:Alice.Ain.FunctionType.t) =
-  let jaf_to_ain_local (v:variable) =
-    Alice.Ain.Variable.make_local v.name (jaf_to_ain_type v.type_spec)
-  in
-  a_f.nr_arguments <- List.length j_f.params;
-  a_f.variables <- List.map j_f.params ~f:jaf_to_ain_local;
+  a_f.variables <- jaf_to_ain_parameters j_f.params;
+  a_f.nr_arguments <- List.length a_f.variables;
   a_f.return_type <- jaf_to_ain_type j_f.return;
   a_f

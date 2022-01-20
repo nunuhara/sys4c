@@ -100,7 +100,8 @@ class variable_alloc_visitor ctx = object (self)
     begin match Alice.Ain.get_function ctx.ain f.name with
     | Some (obj) -> obj |> jaf_to_ain_function f |> add_vars |> Alice.Ain.Function.write ctx.ain
     | None -> compiler_bug "Undefined function" (Some(ASTDeclaration(Function f)))
-    end
+    end;
+    vars <- []
 end
 
 let allocate_variables ctx decls =

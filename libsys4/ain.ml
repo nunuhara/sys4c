@@ -3,6 +3,7 @@ external strangle_linker : unit -> unit = "ain_new"
 external strangle_dune : unit -> unit = "_ain_global"
 external strangle_dune2 : unit -> unit = "ain_write"
 
+open Core
 open Ctypes
 open Foreign
 open Printf
@@ -69,17 +70,17 @@ module Type = struct
       | IFaceWrap   -> begin match b with IFaceWrap   -> true | _ -> false end
       | Struct i_a ->
           begin match b with
-          | Struct i_b -> i_a == i_b
+          | Struct i_b -> i_a = i_b
           | _ -> false
           end
       | FuncType i_a ->
           begin match b with
-          | FuncType i_b -> i_a == i_b
+          | FuncType i_b -> i_a = i_b
           | _ -> false
           end
       | Delegate i_a ->
           begin match b with
-          | Delegate i_b -> i_a == i_b
+          | Delegate i_b -> i_a = i_b
           | _ -> false
           end
       | Array t_a ->
@@ -104,21 +105,21 @@ module Type = struct
           end
       | Enum2 i_a ->
           begin match b with
-          | Enum2 i_b -> i_a == i_b
+          | Enum2 i_b -> i_a = i_b
           | _ -> false
           end
       | Enum i_a ->
           begin match b with
-          | Enum i_b -> i_a == i_b
+          | Enum i_b -> i_a = i_b
           | _ -> false
           end
       | Function i_a ->
           begin match b with
-          | Function i_b -> i_a == i_b
+          | Function i_b -> i_a = i_b
           | _ -> false
           end
     in
-    (a.is_ref == b.is_ref) && (data_type_equal a.data b.data)
+    (Bool.equal a.is_ref b.is_ref) && (data_type_equal a.data b.data)
 
   let rec data_to_string = function
     | Void -> "void"
@@ -297,7 +298,7 @@ module Type = struct
     let rank = Signed.Int32.to_int (getf (!@ p) rank) in
     (* t constructor for (old) array types *)
     let rec make_array ?(is_ref=false) data rank =
-      if rank == 0 then
+      if rank = 0 then
         make data
       else
         make (Array (make_array data (rank - 1))) ~is_ref
@@ -472,7 +473,7 @@ module Function = struct
   (* internal to Ain module *)
   let of_ptr p i =
     let rec vars_of_ptr p n result =
-      if n == 0 then
+      if n = 0 then
         List.rev result
       else
         vars_of_ptr (p +@ 1) (n - 1) ((Variable.of_ptr p (List.length result))::result)
@@ -527,6 +528,11 @@ module Function = struct
     realloc_vars f_c (List.length f.vars);
     write_vars (getf !@f_c vars) f.vars
 
+  let logical_parameters f =
+    let not_void (v:Variable.t) =
+      match v.value_type.data with Void -> false | _ -> true
+    in
+    List.filter (List.take f.vars f.nr_args) ~f:not_void
 end
 
 (** Bindings for `struct ain_initval` objects. *)
@@ -601,13 +607,13 @@ module Struct = struct
       }
     in
     let rec interfaces_of_ptr p n result =
-      if n == 0 then
+      if n = 0 then
         List.rev result
       else
         interfaces_of_ptr (p +@ 1) (n - 1) ((interface_of_ptr p)::result)
     in
     let rec members_of_ptr p n result =
-      if n == 0 then
+      if n = 0 then
         List.rev result
       else
         members_of_ptr (p +@ 1) (n - 1) ((Variable.of_ptr p (List.length result))::result)
@@ -692,7 +698,7 @@ module Library = struct
 
     let of_ptr p lib_no func_no =
       let rec arguments_of_ptr p n result =
-        if n == 0 then
+        if n = 0 then
           List.rev result
         else
           arguments_of_ptr (p +@ 1) (n - 1) ((HLLArgument.of_ptr p)::result)
@@ -722,7 +728,7 @@ module Library = struct
   (* internal to Ain module *)
   let of_ptr p lib_no =
     let rec functions_of_ptr p i n result =
-      if n == 0 then
+      if n = 0 then
         List.rev result
       else
         functions_of_ptr (p +@ 1) (i + 1) (n - 1) ((HLLFunction.of_ptr p lib_no i)::result)
@@ -794,7 +800,7 @@ module FunctionType = struct
   (* internal to Ain module *)
   let of_ptr p i =
     let rec vars_of_ptr p n result =
-      if n == 0 then
+      if n = 0 then
         List.rev result
       else
         vars_of_ptr (p +@ 1) (n - 1) ((Variable.of_ptr p (List.length result))::result)
@@ -837,6 +843,12 @@ module FunctionType = struct
     realloc_vars f_c (List.length f.variables);
     write_vars (getf !@f_c variables) f.variables
 
+  let logical_parameters f =
+    let not_void (v:Variable.t) =
+      match v.value_type.data with Void -> false | _ -> true
+    in
+    List.filter f.variables ~f:not_void
+
   let function_compatible (ft:t) (f:Function.t) =
     let take_types n vars =
       let rec take_types_r n (vars : Variable.t list) result =
@@ -850,8 +862,10 @@ module FunctionType = struct
       take_types_r n vars []
     in
     (Type.equal ft.return_type f.return_type)
-    && (ft.nr_arguments == f.nr_args)
-    && (List.for_all2 Type.equal (take_types ft.nr_arguments ft.variables) (take_types f.nr_args f.vars))
+    && (ft.nr_arguments = f.nr_args)
+    && (List.for_all2_exn (take_types ft.nr_arguments ft.variables)
+                          (take_types f.nr_args f.vars))
+                          ~f:Type.equal
 end
 
 (** Bindings for `struct ain_enum` objects. *)
@@ -1019,7 +1033,7 @@ let function_of_hll_function_index ain lib_no fun_no =
           address = 0;
           name = f.name;
           nr_args = List.length f.arguments;
-          vars = List.map var_of_hll_arg f.arguments;
+          vars = List.map f.arguments ~f:var_of_hll_arg ;
           return_type = f.return_type;
           is_label = false;
           is_lambda = 0;
@@ -1032,7 +1046,7 @@ let function_of_hll_function_index ain lib_no fun_no =
   | None ->
       failwith "_ain_library_function returned NULL"
 
-let append_bytecode = foreign "_ain_append_bytecode" (ain_ptr @-> Buffer.buffer_ptr @-> returning void)
+let append_bytecode = foreign "_ain_append_bytecode" (ain_ptr @-> CBuffer.buffer_ptr @-> returning void)
 
 let code_size = foreign "_ain_code_size" (ain_ptr @-> returning int)
 

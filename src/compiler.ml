@@ -35,7 +35,7 @@ class jaf_compiler ain = object (self)
   (* The function currently being compiled. *)
   val mutable current_function : Alice.Ain.Function.t option = None
   (* The bytecode output buffer. *)
-  val mutable buffer = Alice.Buffer.create 2048
+  val mutable buffer = Alice.CBuffer.create 2048
   (* Address of the start of the current buffer. *)
   val mutable start_address : int = 0
   (* Current address within the code section. *)
@@ -161,7 +161,7 @@ class jaf_compiler ain = object (self)
     | (true, DUP2)   -> self#write_instruction1 X_DUP 2
     | (true, ASSIGN) -> self#write_instruction1 X_ASSIGN 1
     | _ ->
-        Alice.Buffer.write_int16 buffer (int_of_opcode op);
+        Alice.CBuffer.write_int16 buffer (int_of_opcode op);
         current_address <- current_address + 2
 
   method write_instruction1 op arg0 =
@@ -170,36 +170,36 @@ class jaf_compiler ain = object (self)
         self#write_instruction1 PUSH arg0;
         self#write_instruction0 S_MOD
     | _ ->
-        Alice.Buffer.write_int16 buffer (int_of_opcode op);
-        Alice.Buffer.write_int32 buffer arg0;
+        Alice.CBuffer.write_int16 buffer (int_of_opcode op);
+        Alice.CBuffer.write_int32 buffer arg0;
         current_address <- current_address + 6
 
   method write_instruction1_float op arg0 =
-    Alice.Buffer.write_int16 buffer (int_of_opcode op);
-    Alice.Buffer.write_float buffer arg0;
+    Alice.CBuffer.write_int16 buffer (int_of_opcode op);
+    Alice.CBuffer.write_float buffer arg0;
     current_address <- current_address + 6
 
   method write_instruction2 op arg0 arg1 =
-    Alice.Buffer.write_int16 buffer (int_of_opcode op);
-    Alice.Buffer.write_int32 buffer arg0;
-    Alice.Buffer.write_int32 buffer arg1;
+    Alice.CBuffer.write_int16 buffer (int_of_opcode op);
+    Alice.CBuffer.write_int32 buffer arg0;
+    Alice.CBuffer.write_int32 buffer arg1;
     current_address <- current_address + 10
 
   method write_instruction3 op arg0 arg1 arg2 =
-    Alice.Buffer.write_int16 buffer (int_of_opcode op);
-    Alice.Buffer.write_int32 buffer arg0;
-    Alice.Buffer.write_int32 buffer arg1;
-    Alice.Buffer.write_int32 buffer arg2;
+    Alice.CBuffer.write_int16 buffer (int_of_opcode op);
+    Alice.CBuffer.write_int32 buffer arg0;
+    Alice.CBuffer.write_int32 buffer arg1;
+    Alice.CBuffer.write_int32 buffer arg2;
     current_address <- current_address + 14
 
   method write_address_at dst addr =
-    Alice.Buffer.write_int32_at buffer (dst - start_address) addr
+    Alice.CBuffer.write_int32_at buffer (dst - start_address) addr
 
   method write_buffer =
     if current_address > start_address then
       begin
         Alice.Ain.append_bytecode ain buffer;
-        Alice.Buffer.clear buffer;
+        Alice.CBuffer.clear buffer;
         start_address <- current_address
       end
 
@@ -410,7 +410,7 @@ class jaf_compiler ain = object (self)
     let compile_arg arg (var:Alice.Ain.Variable.t) =
       self#compile_argument arg var.value_type
     in
-    List.iter2_exn args f.vars ~f:compile_arg
+    List.iter2_exn args (Alice.Ain.Function.logical_parameters f) ~f:compile_arg
 
   (** Emit the code to call a method. The object upon which the method is to be
       called should already be on the stack before this code is executed. *)
@@ -795,7 +795,7 @@ class jaf_compiler ain = object (self)
         in
         let f = Alice.Ain.FunctionType.of_int ain no in
         self#compile_expression e;
-        List.iter2_exn args f.variables ~f:compile_arg;
+        List.iter2_exn args (Alice.Ain.FunctionType.logical_parameters f) ~f:compile_arg;
         self#write_instruction1 PUSH no;
         self#write_instruction0 CALLFUNC2
     | Call (_, _, _) ->
