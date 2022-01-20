@@ -33,6 +33,24 @@ class variable_alloc_visitor ctx = object (self)
     in
     search 0 (List.rev vars)
 
+  method add_var (v:variable) =
+    let i = List.length vars in
+    v.index <- Some i;
+    begin match v.type_spec with
+    | { data=(Int|Bool|Float|FuncType (_, _)); qualifier=Some Ref } ->
+        let void = {
+          name = "<void>";
+          array_dim = [];
+          type_spec = { data=Void; qualifier=None };
+          initval = None;
+          index = Some (i + 1)
+        }
+        in
+        vars <- void::v::vars
+    | _ ->
+        vars <- v::vars
+    end
+
   method! visit_expression expr =
     super#visit_expression expr;
     begin match expr.node with
@@ -64,9 +82,7 @@ class variable_alloc_visitor ctx = object (self)
     end
 
   method! visit_local_variable v =
-    (* add local to var list *)
-    v.index <- Some (List.length vars);
-    vars <- v::vars;
+    self#add_var v;
     super#visit_local_variable v
 
   method! visit_fundecl f =
@@ -78,7 +94,7 @@ class variable_alloc_visitor ctx = object (self)
       a_f
     in
     (* add params to var list *)
-    List.iter f.params ~f:(fun v -> vars <- v::vars);
+    List.iter f.params ~f:self#add_var;
     super#visit_fundecl f;
     (* write updated fundecl to ain file *)
     begin match Alice.Ain.get_function ctx.ain f.name with
