@@ -34,7 +34,13 @@ let decls typespec var_list =
   List.map (decl typespec) var_list
 
 let func typespec name params body =
-  { name=name; return=typespec; params=params; body=body; index=None; class_index=None; super_index=None }
+  (* XXX: hack for `functype name(void)` *)
+  let plist =
+    match params with
+    | [{ type_spec={data=Void; _}; _}] -> []
+    | _ -> params
+  in
+  { name=name; return=typespec; params=plist; body=body; index=None; class_index=None; super_index=None }
 
 %}
 
@@ -43,7 +49,6 @@ let func typespec name params body =
 %token <string> C_CONSTANT
 %token <string> S_CONSTANT
 %token <string> IDENTIFIER
-%token <string> TYPEDEF_NAME
 /* arithmetic */
 %token PLUS MINUS TIMES DIV MOD
 /* bitwise */
@@ -384,6 +389,7 @@ parameter_declaration
 
 parameter_list
   : LPAREN separated_list(COMMA, parameter_declaration) RPAREN { $2 }
+  | LPAREN VOID RPAREN { [] }
   ;
 
 functype_parameter_declaration
