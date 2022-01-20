@@ -60,9 +60,9 @@ class sanity_check_visitor = object
     super#visit_declaration d;
     match d with
     | Global g ->
-        begin match g.index with
-        | Some _ -> ()
-        | None -> compiler_bug "global variable index not set" (Some(ASTDeclaration(Global g)))
+        begin match g.index, g.type_spec.qualifier with
+        | Some _, _ | None, Some Const -> ()
+        | None, _ -> compiler_bug "global variable index not set" (Some(ASTDeclaration(Global g)))
         end
     | _ -> ()
 end
