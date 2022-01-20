@@ -221,7 +221,18 @@ class type_analyze_visitor ctx = object (self)
         end
     | Binary (op, a, b) ->
         begin match op with
-        | Plus | Minus | Times | Divide | LT | GT | LTE | GTE ->
+        | Plus ->
+            begin match (Option.value_exn a.valuetype).data with
+            | String ->
+                check String b
+            | _ ->
+                check_numeric a;
+                check_numeric b;
+                (* TODO: allow coercion *)
+                check_expr a b;
+            end;
+            expr.valuetype <- a.valuetype
+        | Minus | Times | Divide ->
             check_numeric a;
             check_numeric b;
             (* TODO: allow coercion *)
@@ -245,7 +256,7 @@ class type_analyze_visitor ctx = object (self)
                 data_type_error Int (Some a) (ASTExpression expr)
             end;
             expr.valuetype <- a.valuetype
-        | Equal | NEqual ->
+        | Equal | NEqual | LT | GT | LTE | GTE ->
             begin match (Option.value_exn a.valuetype).data with
             | String ->
                 check String b
