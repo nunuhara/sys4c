@@ -18,11 +18,11 @@ open Core
 open Printf
 open Jaf
 
-let compile_jaf jaf_file ain_file output_file =
+let compile_jaf jaf_file ain_file output_file (ain_major, ain_minor) =
   let ctx =
     match ain_file with
     | Some path -> { ain=Alice.Ain.load path; const_vars=[] }
-    | None -> { ain=Alice.Ain.create 12 0; const_vars=[] }
+    | None -> { ain=Alice.Ain.create ain_major ain_minor; const_vars=[] }
   in
   let do_compile file =
     let lexbuf = Lexing.from_channel file in
@@ -132,8 +132,12 @@ let cmd_compile_jaf =
         ~doc:"ain-file The input .ain file"
       and output_file = flag "-output" (optional_with_default "out.ain" Filename.arg_type)
         ~doc:"out-file The output .ain file"
+      and ain_version = flag "-ain-version" (optional_with_default 4 int)
+        ~doc:"version The output .ain file version (default: 4)"
+      and ain_minor_version = flag "-ain-minor-version" (optional_with_default 0 int)
+        ~doc:"version The output .ain file minor version (default: 0)"
       in
-      fun () -> compile_jaf jaf_file ain_file output_file)
+      fun () -> compile_jaf jaf_file ain_file output_file (ain_version, ain_minor_version))
 
 let () =
   Command.run ~version:"0.1" cmd_compile_jaf;
