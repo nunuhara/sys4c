@@ -1,2 +1,6 @@
 _build
 *.swp
+libsys4/system4.h
+libsys4/system4_ain.h
+libsys4/system4_buffer.h
+libsys4/system4_string.h

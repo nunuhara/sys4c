@@ -1,6 +1,6 @@
 #include <stdlib.h>
-#include "libsys4/include/system4.h"
-#include "libsys4/include/system4/buffer.h"
+#include "system4.h"
+#include "system4_buffer.h"
 
 struct buffer *_buffer_create(size_t initial_size)
 {

@@ -20,9 +20,9 @@
 #include <string.h>
 #include <errno.h>
 #include <zlib.h>
-#include "libsys4/include/system4.h"
-#include "libsys4/include/system4/ain.h"
-#include "libsys4/include/system4/string.h"
+#include "system4.h"
+#include "system4_ain.h"
+#include "system4_string.h"
 
 struct ain_buffer {
 	uint8_t *buf;

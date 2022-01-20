@@ -2,6 +2,12 @@
 
 chdir $(dirname "$0")/libsys4/libsys4
 
+# files in subdirectories aren't available when building c stubs...
+cp include/system4.h ../system4.h
+cp include/system4/ain.h ../system4_ain.h
+cp include/system4/buffer.h ../system4_buffer.h
+cp include/system4/string.h ../system4_string.h
+
 if [ ! -d build ]
 then
     mkdir build
