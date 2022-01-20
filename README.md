@@ -43,15 +43,21 @@ Then build the compiler with make,
 
     make
 
+Installation
+------------
+
+Run the command `dune install` to install sys4c (via opam). This does not
+require root.
+
 Usage
 -----
 
-Not yet usable. But to run it anyways,
+To compile a .jaf source file `source.jaf`, outputting a .ain file `out.ain`:
 
-    dune exec src/sys4c.exe
+    sys4c -o out.ain source.jaf
 
-Then enter some code followed by the '$' character. Currently this just does
-some analysis and then prints the code back (from the parsed AST).
+Note that you can also run the compiler without installing it by replacing
+`sys4c` with `dune exec src/sys4c.exe` in the above command.
 
 TODO
 ----
@@ -61,5 +67,6 @@ TODO
 - [x] Type analysis
 - [x] Constant expression evaluation
 - [x] Variable allocation
-- [ ] Compilation
+- [x] Compilation
+- [ ] Test suite
 - [ ] Separate compilation & linking (maybe?)

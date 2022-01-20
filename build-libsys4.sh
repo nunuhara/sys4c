@@ -9,7 +9,7 @@ fi
 
 if [ ! -e build/build.ninja ]
 then
-    meson build
+    meson build -Ddefault_library=both
 fi
 
 ninja -C build

@@ -1,5 +1,7 @@
 (executable
  (name sys4c)
+ (public_name sys4c)
+ (package sys4c)
  (libraries core alice)
  (preprocess (pps ppx_jane)))
 

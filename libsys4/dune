@@ -2,6 +2,7 @@
 
 (library
   (name alice)
+  (public_name sys4c.alice)
   (libraries ctypes.foreign)
   (c_library_flags (-lz -lpng16 -lwebp -lturbojpeg))
   (foreign_stubs (language c) (names ain buffer repack))
@@ -9,8 +10,9 @@
 
 (rule
   (deps (source_tree libsys4))
-  (targets libsys4.a)
+  (targets libsys4.a dllsys4.so)
   (action
     (no-infer
       (progn
-        (copy libsys4/build/libsys4.a libsys4.a)))))
+        (copy libsys4/build/libsys4.a libsys4.a)
+        (copy libsys4/build/libsys4.so dllsys4.so)))))

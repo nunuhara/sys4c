@@ -16,6 +16,6 @@ uninstall:
 	dune uninstall
 
 clean:
-	ninja -C src/libsys4/build clean
+	ninja -C libsys4/libsys4/build clean
 	dune clean
 
