@@ -84,7 +84,7 @@ let e  = ['E' 'e'] ['+' '-']? d+
 let p  = ['P' 'p'] ['+' '-']? d+
 let es = '\\' ( ['\'' '"' '?' '\\' 'a' 'b' 'f' 'n' 'r' 't' 'v'] | 'x' h+ )
 let ws = [' ' '\t']
-let sc = [^ '\\' '\n'] | es
+let sc = [^ '\\' '\n' '"'] | es
 
 rule token = parse
     [' ' '\t']              { token lexbuf } (* skip blanks *)
