@@ -2,6 +2,17 @@
 #include "system4.h"
 #include "system4_ain.h"
 #include "system4_buffer.h"
+#include "system4_utfsjis.h"
+
+static char *conv(const char *str)
+{
+	return sjis2utf(str, 0);
+}
+
+struct ain *_ain_open(const char *path, int *error)
+{
+	return ain_open_conv(path, conv, error);
+}
 
 /*
  * XXX: Private API for bindings internal use. Client code should never

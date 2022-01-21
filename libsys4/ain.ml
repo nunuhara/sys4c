@@ -889,7 +889,7 @@ exception Unrecognized_format
 exception Invalid_format
 
 let load name =
-  let ain_open = foreign "ain_open" (string @-> ptr int @-> returning ain_ptr) in
+  let ain_open = foreign "_ain_open" (string @-> ptr int @-> returning ain_ptr) in
   let err = allocate int 0 in
   let ainp = ain_open name err in
   begin match !@err with

@@ -1,0 +1,9 @@
+string 付ける(string a, string b)
+{
+	return a + b;
+}
+
+int main()
+{
+	return !(付ける("あ", "い") == "あい");
+}

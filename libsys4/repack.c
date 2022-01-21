@@ -23,6 +23,7 @@
 #include "system4.h"
 #include "system4_ain.h"
 #include "system4_string.h"
+#include "system4_utfsjis.h"
 
 struct ain_buffer {
 	uint8_t *buf;
@@ -65,10 +66,16 @@ static void write_bytes(struct ain_buffer *out, const uint8_t *bytes, size_t len
 	out->ptr += len;
 }
 
-static void write_string(struct ain_buffer *out, const char *s)
+static void write_string(struct ain_buffer *out, const char *s, size_t len)
 {
-	size_t len = strlen(s);
-	write_bytes(out, (const uint8_t*)s, len+1);
+	char *sjis = utf2sjis(s, len);
+	write_bytes(out, sjis, strlen(sjis)+1);
+	free(sjis);
+}
+
+static void write_nt_string(struct ain_buffer *out, const char *s)
+{
+	write_string(out, s, strlen(s));
 }
 
 static void write_header(struct ain_buffer *out, const char *s)
@@ -102,16 +109,16 @@ static void write_return_type(struct ain_buffer *out, struct ain *ain, struct ai
 
 static void write_variable(struct ain_buffer *out, struct ain *ain, struct ain_variable *v)
 {
-	write_string(out, v->name);
+	write_nt_string(out, v->name);
 	if (AIN_VERSION_GTE(ain, 12, 0))
-		write_string(out, v->name2);
+		write_nt_string(out, v->name2);
 	write_variable_type(out, ain, &v->type);
 	if (AIN_VERSION_GTE(ain, 8, 0)) {
 		write_int32(out, v->has_initval);
 		if (v->has_initval) {
 			switch (v->type.data) {
 			case AIN_STRING:
-				write_string(out, v->initval.s);
+				write_nt_string(out, v->initval.s);
 			case AIN_DELEGATE:
 			case AIN_REF_TYPE:
 			case AIN_ARRAY:
@@ -127,7 +134,7 @@ static void write_variable(struct ain_buffer *out, struct ain *ain, struct ain_v
 static void write_function(struct ain_buffer *out, struct ain *ain, struct ain_function *f)
 {
 	write_int32(out, f->address);
-	write_string(out, f->name);
+	write_nt_string(out, f->name);
 	if (ain->version > 1 && ain->version < 7)
 		write_int32(out, f->is_label);
 	write_return_type(out, ain, &f->return_type);
@@ -144,9 +151,9 @@ static void write_function(struct ain_buffer *out, struct ain *ain, struct ain_f
 
 static void write_global(struct ain_buffer *out, struct ain *ain, struct ain_variable *g)
 {
-	write_string(out, g->name);
+	write_nt_string(out, g->name);
 	if (AIN_VERSION_GTE(ain, 12, 0))
-		write_string(out, g->name2);
+		write_nt_string(out, g->name2);
 	write_variable_type(out, ain, &g->type);
 	if (AIN_VERSION_GTE(ain, 5, 0))
 		write_int32(out, g->group_index);
@@ -157,14 +164,14 @@ static void write_initval(struct ain_buffer *out, possibly_unused struct ain *ai
 	write_int32(out, v->global_index);
 	write_int32(out, v->data_type);
 	if (v->data_type == AIN_STRING)
-		write_string(out, v->string_value);
+		write_nt_string(out, v->string_value);
 	else
 		write_int32(out, v->int_value);
 }
 
 static void write_structure(struct ain_buffer *out, struct ain *ain, struct ain_struct *s)
 {
-	write_string(out, s->name);
+	write_nt_string(out, s->name);
 	if (AIN_VERSION_GTE(ain, 11, 0)) {
 		write_int32(out, s->nr_interfaces);
 		for (int i = 0; i < s->nr_interfaces; i++) {
@@ -188,10 +195,10 @@ static void write_structure(struct ain_buffer *out, struct ain *ain, struct ain_
 
 static void write_library(struct ain_buffer *out, struct ain *ain, struct ain_library *lib)
 {
-	write_string(out, lib->name);
+	write_nt_string(out, lib->name);
 	write_int32(out, lib->nr_functions);
 	for (int i = 0; i < lib->nr_functions; i++) {
-		write_string(out, lib->functions[i].name);
+		write_nt_string(out, lib->functions[i].name);
 		if (AIN_VERSION_GTE(ain, 14, 0)) {
 			write_variable_type(out, ain, &lib->functions[i].return_type);
 		} else {
@@ -199,7 +206,7 @@ static void write_library(struct ain_buffer *out, struct ain *ain, struct ain_li
 		}
 		write_int32(out, lib->functions[i].nr_arguments);
 		for (int j = 0; j < lib->functions[i].nr_arguments; j++) {
-			write_string(out, lib->functions[i].arguments[j].name);
+			write_nt_string(out, lib->functions[i].arguments[j].name);
 			if (AIN_VERSION_GTE(ain, 14, 0)) {
 				write_variable_type(out, ain, &lib->functions[i].arguments[j].type);
 			} else {
@@ -222,13 +229,13 @@ static void write_switch(struct ain_buffer *out, possibly_unused struct ain *ain
 
 static void write_scenario_label(struct ain_buffer *out, possibly_unused struct ain *ain, struct ain_scenario_label *l)
 {
-	write_string(out, l->name);
+	write_nt_string(out, l->name);
 	write_int32(out, l->address);
 }
 
 static void write_function_type(struct ain_buffer *out, struct ain *ain, struct ain_function_type *f)
 {
-	write_string(out, f->name);
+	write_nt_string(out, f->name);
 	write_return_type(out, ain, &f->return_type);
 	write_int32(out, f->nr_arguments);
 	write_int32(out, f->nr_variables);
@@ -239,17 +246,18 @@ static void write_function_type(struct ain_buffer *out, struct ain *ain, struct 
 
 static void write_msg1_string(struct ain_buffer *out, possibly_unused struct ain *ain, struct string *msg)
 {
-	write_int32(out, msg->size);
+	char *sjis = utf2sjis(msg->text, msg->size);
+	size_t len = strlen(sjis);
 
-	uint8_t *buf = xmalloc(msg->size);
-	for (int i = 0; i < msg->size; i++) {
-		buf[i] = msg->text[i];
-		buf[i] += 0x60;
-		buf[i] += (uint8_t)i;
+	write_int32(out, len);
+
+	for (int i = 0; i < len; i++) {
+		sjis[i] += 0x60;
+		sjis[i] += (uint8_t)i;
 	}
 
-	write_bytes(out, buf, msg->size);
-	free(buf);
+	write_bytes(out, sjis, len);
+	free(sjis);
 }
 
 static uint8_t *ain_flatten(struct ain *ain, size_t *len)
@@ -311,7 +319,7 @@ static uint8_t *ain_flatten(struct ain *ain, size_t *len)
 		write_header(&out, "MSG0");
 		write_int32(&out, ain->nr_messages);
 		for (int i = 0; i < ain->nr_messages; i++) {
-			write_bytes(&out, (uint8_t*)ain->messages[i]->text, ain->messages[i]->size+1);
+			write_string(&out, ain->messages[i]->text, ain->messages[i]->size);
 		}
 	}
 	// MSG1
@@ -367,7 +375,7 @@ static uint8_t *ain_flatten(struct ain *ain, size_t *len)
 		write_header(&out, "STR0");
 		write_int32(&out, ain->nr_strings);
 		for (int i = 0; i < ain->nr_strings; i++) {
-			write_bytes(&out, (uint8_t*)ain->strings[i]->text, ain->strings[i]->size+1);
+			write_string(&out, ain->strings[i]->text, ain->strings[i]->size);
 		}
 	}
 	// FNAM
@@ -375,7 +383,7 @@ static uint8_t *ain_flatten(struct ain *ain, size_t *len)
 		write_header(&out, "FNAM");
 		write_int32(&out, ain->nr_filenames);
 		for (int i = 0; i < ain->nr_filenames; i++) {
-			write_string(&out, ain->filenames[i]);
+			write_nt_string(&out, ain->filenames[i]);
 		}
 	}
 	// OJMP
@@ -406,7 +414,7 @@ static uint8_t *ain_flatten(struct ain *ain, size_t *len)
 		write_header(&out, "OBJG");
 		write_int32(&out, ain->nr_global_groups);
 		for (int i = 0; i < ain->nr_global_groups; i++) {
-			write_string(&out, ain->global_group_names[i]);
+			write_nt_string(&out, ain->global_group_names[i]);
 		}
 	}
 	// ENUM
@@ -414,7 +422,7 @@ static uint8_t *ain_flatten(struct ain *ain, size_t *len)
 		write_header(&out, "ENUM");
 		write_int32(&out, ain->nr_enums);
 		for (int i = 0; i < ain->nr_enums; i++) {
-			write_string(&out, ain->enums[i].name);
+			write_nt_string(&out, ain->enums[i].name);
 		}
 	}
 

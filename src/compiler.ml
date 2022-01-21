@@ -438,12 +438,12 @@ class jaf_compiler ain = object (self)
     | ConstFloat f ->
         self#write_instruction1_float F_PUSH f
     | ConstChar s ->
+        (* FIXME: need to decode UTF-8 char and convert to JIS code-point *)
         if not (String.length s = 1) then
           compile_error "Invalid character constant" (ASTExpression expr)
         else
           self#write_instruction1 PUSH (int_of_char (String.get s 0))
     | ConstString s ->
-        (* FIXME: need to SJIS-encode string *)
         let no = Alice.Ain.add_string ain s in
         self#write_instruction1 S_PUSH no
     | Ident (_, Some (LocalVariable i)) ->
@@ -923,7 +923,6 @@ class jaf_compiler ain = object (self)
         end;
         self#write_instruction0 RETURN
     | MessageCall (msg, _, fno) ->
-        (* FIXME: need to SJIS-encode message *)
         let msg_no = Alice.Ain.add_message ain msg in
         self#write_instruction1 MSG msg_no;
         begin match fno with

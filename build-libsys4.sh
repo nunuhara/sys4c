@@ -7,6 +7,7 @@ cp include/system4.h ../system4.h
 cp include/system4/ain.h ../system4_ain.h
 cp include/system4/buffer.h ../system4_buffer.h
 cp include/system4/string.h ../system4_string.h
+cp include/system4/utfsjis.h ../system4_utfsjis.h
 
 if [ ! -d build ]
 then

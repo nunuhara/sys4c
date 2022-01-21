@@ -116,3 +116,5 @@ cd $(dirname "$0")
 ./test-runner.sh const-global.jaf
 
 ./test-runner.sh goto.jaf
+
+./test-runner.sh unicode.jaf

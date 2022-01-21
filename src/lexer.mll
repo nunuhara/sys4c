@@ -70,6 +70,13 @@ let process_message s =
   loop s 0 false []
 }
 
+let u  = ['\x80'-'\xbf']
+let u2 = ['\xc2'-'\xdf']
+let u3 = ['\xe0'-'\xef']
+let u4 = ['\xf0'-'\xf4']
+
+let uch = u2 u | u3 u u | u4 u u u
+
 let b  = ['0' '1']
 let bp = '0' ['b' 'B']
 let o  = ['0'-'7']
@@ -77,9 +84,9 @@ let op = '0' ['o' 'O']
 let d  = ['0'-'9']
 let h  = ['a'-'f' 'A'-'F' '0'-'9']
 let hp = '0' ['x' 'X']
-let l  = ['a'-'z' 'A'-'Z' '_']
-let a  = ['a'-'z' 'A'-'Z' '_' '0'-'9' ':' '@' '#']
-let at = ['a'-'z' 'A'-'Z' '_' '0'-'9']
+let l  = ['a'-'z' 'A'-'Z' '_'] | uch
+let a  = ['a'-'z' 'A'-'Z' '_' '0'-'9' ':' '@' '#'] | uch
+let at = ['a'-'z' 'A'-'Z' '_' '0'-'9'] | uch
 let e  = ['E' 'e'] ['+' '-']? d+
 let p  = ['P' 'p'] ['+' '-']? d+
 let es = '\\' ( ['\'' '"' '?' '\\' 'a' 'b' 'f' 'n' 'r' 't' 'v'] | 'x' h+ )
@@ -178,6 +185,6 @@ rule token = parse
   | "functype"              { FUNCTYPE }
   | "struct"                { STRUCT }
   | "enum"                  { ENUM }
-  | l as c                  { IDENTIFIER(String.make 1 c) } (* TODO: check_type *)
+  | l as c                  { IDENTIFIER(c) } (* TODO: check_type *)
   | (l a* at) as s          { IDENTIFIER(s) } (* TODO: check_type *)
   | eof                     { EOF }
