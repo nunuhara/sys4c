@@ -24,17 +24,27 @@ open CompileError
 class type_declare_visitor ain = object (self)
   inherit ivisitor
 
+  val functions = Stack.create ()
+
   method declare_function decl =
-    match (decl.return.qualifier, (Alice.Ain.get_function ain decl.name)) with
+    begin match (decl.return.qualifier, (Alice.Ain.get_function ain decl.name)) with
     | (Some Override, None) ->
         compile_error "function doesn't exist for override" (ASTDeclaration(Function decl))
     | (Some Override, Some super_f) ->
         decl.index <- Some super_f.index;
-        decl.super_index <- Some (Alice.Ain.dup_function ain super_f.index)
+        decl.super_index <- Some (Alice.Ain.dup_function ain super_f.index);
+        (* update index of overridden function, if it was defined in this file *)
+        let is_super f = (Option.value_exn f.index) = super_f.index in
+        begin match Stack.find functions ~f:is_super with
+        | Some f -> f.index <- decl.super_index
+        | None -> ()
+        end
     | (_, Some _) ->
         compile_error "Duplicate function definition" (ASTDeclaration(Function decl))
     | (_, None) ->
         decl.index <- Some (Alice.Ain.add_function ain decl.name).index
+    end;
+    Stack.push functions decl
 
   method! visit_declaration decl =
     match decl with
@@ -169,10 +179,8 @@ class type_define_visitor ctx = object
             Alice.Ain.write_global ctx.ain g.name (jaf_to_ain_type g.type_spec)
         end
     | Function (f) ->
-        begin match Alice.Ain.get_function ctx.ain f.name with
-        | Some (obj) -> obj |> jaf_to_ain_function f |> Alice.Ain.Function.write ctx.ain
-        | None -> compiler_bug "undefined function" (Some(ASTDeclaration decl))
-        end
+        let obj = Alice.Ain.Function.of_int ctx.ain (Option.value_exn f.index) in
+        obj |> jaf_to_ain_function f |> Alice.Ain.Function.write ctx.ain
     | FuncTypeDef (f) ->
         begin match Alice.Ain.get_functype ctx.ain f.name with
         | Some (obj) -> obj |> jaf_to_ain_functype f |> Alice.Ain.FunctionType.write ctx.ain

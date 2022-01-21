@@ -171,6 +171,14 @@ class type_analyze_visitor ctx = object (self)
             expr.node <- Ident ("system", Some System);
             expr.valuetype <- Some (Alice.Ain.Type.make Void)
           end
+    | Ident ("super", _) ->
+        begin match environment#current_function with
+        | Some { super_index=Some super_no; _} ->
+            expr.node <- Ident ("super", Some (FunctionName super_no));
+            expr.valuetype <- Some (Alice.Ain.Type.make (Function super_no))
+        | _ ->
+            compile_error "'super' keyword used outside of override function" (ASTExpression expr)
+        end
     | Ident (name, _) ->
         begin match environment#get name with
         | Some v ->
