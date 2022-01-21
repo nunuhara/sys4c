@@ -1,0 +1,10 @@
+int main()
+{
+	string a;
+	ref string ra;
+	ref string rb;
+	ra <- a;
+	rb <- ra;
+	rb = "1";
+	return !(a == "1");
+}
