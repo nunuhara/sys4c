@@ -18,12 +18,12 @@ open Core
 open Printf
 open Jaf
 
-let compile_jaf jaf_file ain_file output_file (ain_major, ain_minor) =
-  let ctx =
-    match ain_file with
-    | Some path -> { ain=Alice.Ain.load path; const_vars=[] }
-    | None -> { ain=Alice.Ain.create ain_major ain_minor; const_vars=[] }
-  in
+let open_ain_file file major minor =
+  match file with
+  | Some path -> { ain=Alice.Ain.load path; const_vars=[] }
+  | None -> { ain=Alice.Ain.create major minor; const_vars=[] }
+
+let compile_jaf ctx jaf_file =
   let do_compile file =
     let lexbuf = Lexing.from_channel file in
     let result = Parser.main Lexer.token lexbuf in
@@ -35,16 +35,21 @@ let compile_jaf jaf_file ain_file output_file (ain_major, ain_minor) =
     VariableAlloc.allocate_variables ctx result;
     SanityCheck.check_invariants result; (* TODO: disable in release builds *)
     Compiler.compile ctx result;
+  in
+  match jaf_file with
+  | Some "-" | None ->
+      do_compile In_channel.stdin
+  | Some path ->
+      In_channel.with_file path ~f:(fun file -> do_compile file)
+
+let compile_source_files ctx output_file source_files =
+  try
+    begin match source_files with
+    | [] -> compile_jaf ctx None
+    | _ -> List.iter source_files ~f:(fun f -> compile_jaf ctx (Some f))
+    end;
     Alice.Ain.write ctx.ain output_file;
     Alice.Ain.free ctx.ain
-  in
-  try
-    begin match jaf_file with
-    | Some "-" | None ->
-        do_compile In_channel.stdin
-    | Some path ->
-        In_channel.with_file path ~f:(fun file -> do_compile file)
-    end
   with
   | CompileError.Type_error (expected, actual, parent) ->
       let s_expected = Alice.Ain.Type.to_string expected in
@@ -127,7 +132,7 @@ let cmd_compile_jaf =
     ~readme: (fun () -> "Compile a .jaf file, optionally appending to an existing .ain file.")
     Command.Let_syntax.(
       let%map_open
-        jaf_file = anon (maybe ("jaf file" %: Filename.arg_type))
+        source_files = anon (sequence ("source files" %: Filename.arg_type))
       and ain_file = flag "-ain-file" (optional Filename.arg_type)
         ~doc:"ain-file The input .ain file"
       and output_file = flag "-output" (optional_with_default "out.ain" Filename.arg_type)
@@ -137,7 +142,9 @@ let cmd_compile_jaf =
       and ain_minor_version = flag "-ain-minor-version" (optional_with_default 0 int)
         ~doc:"version The output .ain file minor version (default: 0)"
       in
-      fun () -> compile_jaf jaf_file ain_file output_file (ain_version, ain_minor_version))
+      fun () ->
+        let ctx = open_ain_file ain_file ain_version ain_minor_version in
+        compile_source_files ctx output_file source_files)
 
 let () =
   Command.run ~version:"0.1" cmd_compile_jaf;
