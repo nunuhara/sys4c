@@ -423,6 +423,13 @@ module Variable = struct
     setf !@dst group_index (Signed.Int32.of_int src.group_index);
     setf !@dst var_type src.var_type
 
+  let equal a b =
+    (String.equal a.name b.name)
+    && (Option.equal String.equal a.name2 b.name2)
+    && (Type.equal a.value_type b.value_type)
+    (* TODO: initval *)
+    && (a.group_index = b.group_index)
+    && (a.var_type = b.var_type)
 end
 
 (** Bindings for `struct ain_function` objects *)
@@ -533,6 +540,14 @@ module Function = struct
       match v.value_type.data with Void -> false | _ -> true
     in
     List.filter (List.take f.vars f.nr_args) ~f:not_void
+
+  let equal a b =
+    (String.equal a.name b.name)
+    && (a.nr_args = b.nr_args)
+    && ((List.length a.vars) = (List.length b.vars))
+    && (List.for_all2_exn a.vars b.vars ~f:Variable.equal)
+    && (Bool.equal a.is_label b.is_label)
+    && (a.is_lambda = b.is_lambda)
 end
 
 (** Bindings for `struct ain_initval` objects. *)
@@ -658,6 +673,13 @@ module Struct = struct
     realloc_members s_c (List.length s.members);
     write_members (getf !@s_c members) s.members
 
+  let equal a b =
+    (String.equal a.name b.name)
+    && ((List.length a.interfaces) = (List.length b.interfaces))
+    (* TODO: interfaces? only works if structs from same ain file *)
+    (* TODO: constructor & destructor? only works if structs from same ain file *)
+    && ((List.length a.members) = (List.length b.members))
+    && (List.for_all2_exn a.members b.members ~f:Variable.equal)
 end
 
 (** Bindings for `struct ain_library` objects (and related types). *)
@@ -678,6 +700,9 @@ module Library = struct
       { name = getf!@p name;
         value_type = Type.of_ptr (addr (getf !@p value_type))
       }
+
+    let equal a b =
+      (String.equal a.name b.name) && (Type.equal a.value_type b.value_type)
   end
   module HLLFunction = struct
     type t_c
@@ -710,6 +735,11 @@ module Library = struct
         return_type = Type.of_ptr (addr (getf !@p return_type));
         arguments = arguments_of_ptr (getf !@p arguments) nr_args []
       }
+
+    let equal a b =
+      (String.equal a.name b.name)
+      && (Type.equal a.return_type b.return_type)
+      && (List.for_all2_exn a.arguments b.arguments ~f:HLLArgument.equal)
   end
 
   type t_c
@@ -750,6 +780,9 @@ module Library = struct
   (** Get a library object by index from an ain file. *)
   let of_int ain no =
     of_ptr (c_of_int_checked ain no) no
+
+  let equal a b =
+    (String.equal a.name b.name) && (List.for_all2_exn a.functions b.functions ~f:HLLFunction.equal)
 end
 
 (** Bindings for `struct ain_switch` objects. *)
@@ -866,6 +899,11 @@ module FunctionType = struct
     && (List.for_all2_exn (take_types ft.nr_arguments ft.variables)
                           (take_types f.nr_args f.vars))
                           ~f:Type.equal
+
+  let equal a b =
+    (String.equal a.name b.name)
+    && (a.nr_arguments = b.nr_arguments)
+    && (List.for_all2_exn a.variables b.variables ~f:Variable.equal)
 end
 
 (** Bindings for `struct ain_enum` objects. *)
@@ -912,6 +950,8 @@ let get_library_function' =
   foreign "ain_get_library_function" (ain_ptr @-> int @-> string @-> returning int)
 let get_functype' = foreign "ain_get_functype" (ain_ptr @-> string @-> returning int)
 let get_string_no' = foreign "ain_get_string_no" (ain_ptr @-> string @-> returning int)
+let get_string = foreign "_ain_string" (ain_ptr @-> int @-> returning string_opt)
+let get_message = foreign "_ain_message" (ain_ptr @-> int @-> returning string_opt)
 let add_function' = foreign "ain_add_function" (ain_ptr @-> string @-> returning int)
 let dup_function = foreign "ain_dup_function" (ain_ptr @-> int @-> returning int)
 let add_functype' = foreign "ain_add_functype" (ain_ptr @-> string @-> returning int)
@@ -955,6 +995,12 @@ let write_global p name t =
       let g = get_c_global_by_index p i in
       Type.write_ptr p t (addr (getf (!@ g) Variable.value_type))
 
+let write_new_global p (g:Variable.t) =
+  let no = add_global p g.name in
+  let c_g = get_c_global_by_index p no in
+  Type.write_ptr p g.value_type (addr (getf (!@ c_g) Variable.value_type));
+  no
+
 let get_function_by_index p no =
   match Function.c_of_int p no with
   | None -> failwith "_ain_function returned NULL"
@@ -971,6 +1017,11 @@ let add_function p name =
   | None -> failwith "_ain_function returned NULL"
   | Some obj -> Function.of_ptr obj no
 
+let write_new_function p (f:Function.t) =
+  let no = add_function' p f.name in
+  Function.write p {f with index=no};
+  no
+
 let get_struct_by_index p no =
   match Struct.c_of_int p no with
   | None -> failwith "_ain_struct returned NULL"
@@ -983,6 +1034,11 @@ let get_struct p name =
 
 let add_struct p name =
   get_struct_by_index p (add_struct' p name)
+
+let write_new_struct p (s:Struct.t) =
+  let no = add_struct' p s.name in
+  Struct.write p {s with index=no};
+  no
 
 let get_functype p name =
   match get_functype' p name with
@@ -1009,6 +1065,11 @@ let function_of_functype_index ain no =
 
 let add_functype p name =
   FunctionType.of_int p (add_functype' p name)
+
+let write_new_functype p (ft:FunctionType.t) =
+  let no = add_functype' p ft.name in
+  FunctionType.write p {ft with index=no};
+  no
 
 let function_of_hll_function_index ain lib_no fun_no =
   let get_fun = foreign "_ain_library_function" (ain_ptr @-> int @-> int @-> returning (ptr_opt (Library.HLLFunction.t_c))) in
@@ -1056,3 +1117,88 @@ let set_message_function = foreign "_ain_set_message_function" (ain_ptr @-> int 
 let write p filename =
   let write' = foreign "ain_write" (string @-> ain_ptr @-> returning void) in
   write' filename p
+
+let nr_globals = foreign "_ain_nr_globals" (ain_ptr @-> returning int)
+let nr_functions = foreign "_ain_nr_functions" (ain_ptr @-> returning int)
+let nr_structs = foreign "_ain_nr_structures" (ain_ptr @-> returning int)
+let nr_functypes = foreign "_ain_nr_functypes" (ain_ptr @-> returning int)
+let nr_libraries = foreign "_ain_nr_libraries" (ain_ptr @-> returning int)
+
+let global_iter ?(from = 0) ~f p =
+  let rec iter g n i =
+    if n <= 0 then
+      ()
+    else begin
+      f (Variable.of_ptr g i);
+      iter (g +@ 1) (n - 1) (i + 1)
+    end
+  in
+  let globals = (foreign "_ain_globals" (ain_ptr @-> returning (ptr Variable.t_c))) p in
+  iter (globals +@ from) ((nr_globals p) - from) from
+
+let function_iter ?(from = 0) ~f p =
+  let rec iter c_f n i =
+    if n <= 0 then
+      ()
+    else begin
+      f (Function.of_ptr c_f i);
+      iter (c_f +@ 1) (n - 1) (i + 1)
+    end
+  in
+  let functions = (foreign "_ain_functions" (ain_ptr @-> returning (ptr Function.t_c))) p in
+  iter (functions +@ from) ((nr_functions p) - from) from
+
+let struct_iter ?(from = 0) ~f p =
+  let rec iter s n i =
+    if n <= 0 then
+      ()
+    else begin
+      f (Struct.of_ptr s i);
+      iter (s +@ 1) (n - 1) (i + 1)
+    end
+  in
+  let structs = (foreign "_ain_structures" (ain_ptr @-> returning (ptr Struct.t_c))) p in
+  iter (structs +@ from) ((nr_structs p) - from) from
+
+let functype_iter ?(from = 0) ~f p =
+  let rec iter ft n i =
+    if n <= 0 then
+      ()
+    else begin
+      f (FunctionType.of_ptr ft i);
+      iter (ft +@ 1) (n - 1) (i + 1)
+    end
+  in
+  let functypes = (foreign "_ain_functypes" (ain_ptr @-> returning (ptr FunctionType.t_c))) p in
+  iter (functypes +@ from) ((nr_functypes p) - from) from
+
+module DASM = struct
+  type t = unit ptr
+  let dasm_ptr : t typ = ptr void
+
+  let create = foreign "dasm_open" (ain_ptr @-> returning dasm_ptr)
+  let destroy = foreign "dasm_close" (dasm_ptr @-> returning void)
+  let eof = foreign "dasm_eof" (dasm_ptr @-> returning bool)
+  let addr = foreign "dasm_addr" (dasm_ptr @-> returning int)
+  let jump = foreign "dasm_jump" (dasm_ptr @-> int @-> returning void)
+  let next = foreign "dasm_next" (dasm_ptr @-> returning void)
+  let peek = foreign "dasm_peek" (dasm_ptr @-> returning int)
+  let opcode = foreign "dasm_opcode" (dasm_ptr @-> returning int)
+  let nr_args = foreign "dasm_nr_args" (dasm_ptr @-> returning int)
+  let arg = foreign "dasm_arg" (dasm_ptr @-> int @-> returning int)
+  let arg_type = foreign "dasm_arg_type" (dasm_ptr @-> int @-> returning int)
+
+  let arguments dasm =
+    List.map (List.init (nr_args dasm) ~f:(~+)) ~f:(arg dasm)
+
+  let argument_types dasm =
+    List.map (List.init (nr_args dasm) ~f:(~+)) ~f:(arg_type dasm)
+end
+
+let foreach_instruction ~f p =
+  let dasm = DASM.create p in
+  while not (DASM.eof dasm) do
+    f dasm;
+    DASM.next dasm
+  done;
+  DASM.destroy dasm

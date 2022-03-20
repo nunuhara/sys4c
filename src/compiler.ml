@@ -1152,7 +1152,7 @@ class jaf_compiler ain = object (self)
     start_address <- Alice.Ain.code_size ain;
     current_address <- start_address;
     let compile_decl = function
-      | Function f ->
+      | Jaf.Function f ->
           self#compile_function f
       | Global g ->
           begin match g.type_spec.qualifier with

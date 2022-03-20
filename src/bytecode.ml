@@ -1427,3 +1427,38 @@ let function_of_builtin builtin =
   | ArrayErase       -> make_function t_int "Erase" [t_int]
   | ArrayInsert      -> make_function t_void "Insert" [t_int; t_void]
   | ArraySort        -> make_function t_void "Sort" [t_func]
+
+type argtype =
+  | Int
+  | Float
+  | Address
+  | Function
+  | String
+  | Message
+  | Local
+  | Global
+  | Struct
+  | Syscall
+  | Library
+  | LibraryFunction
+  | File
+  | Delegate
+  | Switch
+
+let argtype_of_int = function
+  | 0  -> Int
+  | 1  -> Float
+  | 2  -> Address
+  | 3  -> Function
+  | 4  -> String
+  | 5  -> Message
+  | 6  -> Local
+  | 7  -> Global
+  | 8  -> Struct
+  | 9  -> Syscall
+  | 10 -> Library
+  | 11 -> LibraryFunction
+  | 12 -> File
+  | 13 -> Delegate
+  | 14 -> Switch
+  | _ -> failwith "invalid argument type"

@@ -43,10 +43,18 @@ let compile_jaf ctx jaf_file =
       In_channel.with_file path ~f:(fun file -> do_compile file)
 
 let compile_source_files ctx output_file source_files =
+  let compile_file f =
+    if Filename.check_suffix f ".jaf" then
+      compile_jaf ctx (Some f)
+    else if Filename.check_suffix f ".ain" then
+      Link.link ctx.ain (Alice.Ain.load f)
+    else
+      failwith "unsupported file type"
+  in
   try
     begin match source_files with
     | [] -> compile_jaf ctx None
-    | _ -> List.iter source_files ~f:(fun f -> compile_jaf ctx (Some f))
+    | _ -> List.iter source_files ~f:(fun f -> compile_file f)
     end;
     Alice.Ain.write ctx.ain output_file;
     Alice.Ain.free ctx.ain
