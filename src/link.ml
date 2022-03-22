@@ -219,5 +219,6 @@ let link a b =
   (* 3rd pass to update constructor/destructor indices in struct objects *)
   struct_iter a ~f:(link_struct_ctor_dtor reloc.functions) ~from:struct_start;
   (* append code from b to a, updating indices per relocation tables *)
-  link_code reloc a b
+  if (Alice.Ain.code_size b) > 0 then
+    link_code reloc a b
 

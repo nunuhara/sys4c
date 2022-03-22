@@ -23,29 +23,34 @@ let open_ain_file file major minor =
   | Some path -> { ain=Alice.Ain.load path; const_vars=[] }
   | None -> { ain=Alice.Ain.create major minor; const_vars=[] }
 
-let compile_jaf ctx jaf_file =
-  let do_compile file =
+let parse_jaf jaf_file =
+  let do_parse file =
     let lexbuf = Lexing.from_channel file in
-    let result = Parser.main Lexer.token lexbuf in
-    Declarations.register_type_declarations ctx result;
-    Declarations.resolve_types ctx result;
-    Declarations.define_types ctx result;
-    TypeAnalysis.check_types ctx result;
-    ConstEval.evaluate_constant_expressions ctx result;
-    VariableAlloc.allocate_variables ctx result;
-    SanityCheck.check_invariants result; (* TODO: disable in release builds *)
-    Compiler.compile ctx result;
+    Parser.main Lexer.token lexbuf
   in
   match jaf_file with
   | Some "-" | None ->
-      do_compile In_channel.stdin
+      do_parse In_channel.stdin
   | Some path ->
-      In_channel.with_file path ~f:(fun file -> do_compile file)
+      In_channel.with_file path ~f:(fun file -> do_parse file)
 
-let compile_source_files ctx output_file source_files =
+let compile_jaf ctx jaf_file decl_only =
+  let jaf = parse_jaf jaf_file in
+  Declarations.register_type_declarations ctx jaf;
+  Declarations.resolve_types ctx jaf decl_only;
+  Declarations.define_types ctx jaf;
+  if not decl_only then begin
+    TypeAnalysis.check_types ctx jaf;
+    ConstEval.evaluate_constant_expressions ctx jaf;
+    VariableAlloc.allocate_variables ctx jaf;
+    SanityCheck.check_invariants jaf; (* TODO: disable in release builds *)
+    Compiler.compile ctx jaf
+  end
+
+let compile_source_files ctx output_file source_files decl_only =
   let compile_file f =
     if Filename.check_suffix f ".jaf" then
-      compile_jaf ctx (Some f)
+      compile_jaf ctx (Some f) decl_only
     else if Filename.check_suffix f ".ain" then
       Link.link ctx.ain (Alice.Ain.load f)
     else
@@ -53,7 +58,7 @@ let compile_source_files ctx output_file source_files =
   in
   try
     begin match source_files with
-    | [] -> compile_jaf ctx None
+    | [] -> compile_jaf ctx None decl_only
     | _ -> List.iter source_files ~f:(fun f -> compile_file f)
     end;
     Alice.Ain.write ctx.ain output_file;
@@ -149,10 +154,12 @@ let cmd_compile_jaf =
         ~doc:"version The output .ain file version (default: 4)"
       and ain_minor_version = flag "-ain-minor-version" (optional_with_default 0 int)
         ~doc:"version The output .ain file minor version (default: 0)"
+      and decl_only = flag "-declarations-only" no_arg
+        ~doc:" Output declarations only"
       in
       fun () ->
         let ctx = open_ain_file ain_file ain_version ain_minor_version in
-        compile_source_files ctx output_file source_files)
+        compile_source_files ctx output_file source_files decl_only)
 
 let () =
   Command.run ~version:"0.1" cmd_compile_jaf;

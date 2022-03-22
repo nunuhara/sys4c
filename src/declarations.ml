@@ -92,7 +92,7 @@ let register_type_declarations ctx decls =
 (*
  * AST pass to resolve user-defined types (struct/enum/function types).
  *)
-class type_resolve_visitor ain = object (self)
+class type_resolve_visitor ain decl_only = object (self)
   inherit ivisitor as super
 
   method resolve_type name node =
@@ -157,11 +157,12 @@ class type_resolve_visitor ain = object (self)
     | Enum (_) ->
         compile_error "enum types not yet supported" (ASTDeclaration decl)
     end;
-    super#visit_declaration decl
+    if not decl_only then
+      super#visit_declaration decl
 end
 
-let resolve_types ctx decls =
-  (new type_resolve_visitor ctx.ain)#visit_toplevel decls
+let resolve_types ctx decls decl_only =
+  (new type_resolve_visitor ctx.ain decl_only)#visit_toplevel decls
 
 (*
  * AST pass over top-level declarations to define function/struct types.
