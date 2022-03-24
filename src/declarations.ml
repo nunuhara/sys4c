@@ -21,18 +21,18 @@ open CompileError
 (*
  * AST pass over top-level declarations register names in the .ain file.
  *)
-class type_declare_visitor ain = object (self)
-  inherit ivisitor
+class type_declare_visitor ctx = object (self)
+  inherit ivisitor ctx
 
   val functions = Stack.create ()
 
   method declare_function decl =
-    begin match (decl.return.qualifier, (Alice.Ain.get_function ain decl.name)) with
+    begin match (decl.return.qualifier, (Alice.Ain.get_function ctx.ain decl.name)) with
     | (Some Override, None) ->
         compile_error "function doesn't exist for override" (ASTDeclaration(Function decl))
     | (Some Override, Some super_f) ->
         decl.index <- Some super_f.index;
-        decl.super_index <- Some (Alice.Ain.dup_function ain super_f.index);
+        decl.super_index <- Some (Alice.Ain.dup_function ctx.ain super_f.index);
         (* update index of overridden function, if it was defined in this file *)
         let is_super f = (Option.value_exn f.index) = super_f.index in
         begin match Stack.find functions ~f:is_super with
@@ -42,7 +42,7 @@ class type_declare_visitor ain = object (self)
     | (_, Some _) ->
         compile_error "Duplicate function definition" (ASTDeclaration(Function decl))
     | (_, None) ->
-        decl.index <- Some (Alice.Ain.add_function ain decl.name).index
+        decl.index <- Some (Alice.Ain.add_function ctx.ain decl.name).index
     end;
     Stack.push functions decl
 
@@ -52,20 +52,20 @@ class type_declare_visitor ain = object (self)
         begin match g.type_spec.qualifier with
         | Some Const -> ()
         | _ ->
-            if Option.is_some (Alice.Ain.get_global ain g.name) then
+            if Option.is_some (Alice.Ain.get_global ctx.ain g.name) then
               compile_error "duplicate global variable definition" (ASTDeclaration decl);
-            g.index <- Some (Alice.Ain.add_global ain g.name)
+            g.index <- Some (Alice.Ain.add_global ctx.ain g.name)
         end
     | Function (f) ->
         self#declare_function f
     | FuncTypeDef (f) ->
-        if Option.is_some (Alice.Ain.get_functype ain f.name) then
+        if Option.is_some (Alice.Ain.get_functype ctx.ain f.name) then
           compile_error "duplicate functype definition" (ASTDeclaration decl);
-        ignore (Alice.Ain.add_functype ain f.name : Alice.Ain.FunctionType.t)
+        ignore (Alice.Ain.add_functype ctx.ain f.name : Alice.Ain.FunctionType.t)
     | StructDef (s) ->
-        if Option.is_some (Alice.Ain.get_struct ain s.name) then
+        if Option.is_some (Alice.Ain.get_struct ctx.ain s.name) then
           compile_error "duplicate struct definition" (ASTDeclaration decl);
-        let ain_s = Alice.Ain.add_struct ain s.name in
+        let ain_s = Alice.Ain.add_struct ctx.ain s.name in
         let visit_decl = function
           | Constructor f ->
               f.name <- s.name ^ "@0";
@@ -87,21 +87,34 @@ class type_declare_visitor ain = object (self)
 end
 
 let register_type_declarations ctx decls =
-  (new type_declare_visitor ctx.ain)#visit_toplevel decls
+  (new type_declare_visitor ctx)#visit_toplevel decls
 
 (*
  * AST pass to resolve user-defined types (struct/enum/function types).
  *)
-class type_resolve_visitor ain decl_only = object (self)
-  inherit ivisitor as super
+class type_resolve_visitor ctx decl_only = object (self)
+  inherit ivisitor ctx as super
 
   method resolve_type name node =
-    match Alice.Ain.get_struct_index ain name with
+    match Alice.Ain.get_struct_index ctx.ain name with
     | Some i -> Struct (name, i)
     | None ->
-        begin match Alice.Ain.get_functype_index ain name with
-        | Some i -> FuncType (name, i)
-        | None -> compile_error ("Undefined type: " ^ name) node
+        begin match Alice.Ain.get_struct ctx.import_ain name with
+        | Some s ->
+            (* import struct declaration *)
+            Struct (name, Alice.Ain.write_new_struct ctx.ain s)
+        | None ->
+            begin match Alice.Ain.get_functype_index ctx.ain name with
+            | Some i -> FuncType (name, i)
+            | None ->
+                begin match Alice.Ain.get_functype ctx.import_ain name with
+                | Some ft ->
+                    (* import functype declaration *)
+                    FuncType (name, Alice.Ain.write_new_functype ctx.ain ft)
+                | None ->
+                    compile_error ("Undefined type: " ^ name) node
+                end
+            end
         end
 
   method resolve_typespec ts node =
@@ -126,7 +139,7 @@ class type_resolve_visitor ain decl_only = object (self)
     let function_class (f:fundecl) =
       match String.split_on_chars f.name ~on:['@'] with
       | hd :: _ ->
-          begin match Alice.Ain.get_struct' ain hd with
+          begin match Alice.Ain.get_struct' ctx.ain hd with
           | -1 -> None
           | i -> Some i
           end
@@ -162,13 +175,13 @@ class type_resolve_visitor ain decl_only = object (self)
 end
 
 let resolve_types ctx decls decl_only =
-  (new type_resolve_visitor ctx.ain decl_only)#visit_toplevel decls
+  (new type_resolve_visitor ctx decl_only)#visit_toplevel decls
 
 (*
  * AST pass over top-level declarations to define function/struct types.
  *)
 class type_define_visitor ctx = object
-  inherit ivisitor
+  inherit ivisitor ctx
 
   method! visit_declaration decl =
     match decl with

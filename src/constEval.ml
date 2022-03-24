@@ -84,7 +84,7 @@ let const_unary dst e int_op float_op =
   | _ -> ()
 
 class const_eval_visitor ctx = object (self)
-  inherit ivisitor as super
+  inherit ivisitor ctx as super
 
   method eval_expression (expr:expression) =
     match expr.node with
@@ -93,17 +93,8 @@ class const_eval_visitor ctx = object (self)
     | ConstChar _ -> ()
     | ConstString _ -> ()
     | Ident (name, _) ->
-        let get_var name =
-          match environment#get name with
-          | Some v -> Some v
-          | None ->
-              begin match List.findi ctx.const_vars ~f:(fun _ (v:variable) -> String.equal v.name name) with
-              | Some (_, v) -> Some v
-              | None -> None
-              end
-        in
-        begin match get_var name with
-        | Some v ->
+        begin match environment#resolve name with
+        | ResolvedLocal v | ResolvedConstant v ->
             begin match v.type_spec.qualifier with
             | Some Const ->
                 begin match v.initval with
@@ -112,7 +103,7 @@ class const_eval_visitor ctx = object (self)
                 end
             | _ -> ()
             end
-        | None -> ()
+        | _ -> ()
         end
     | Unary (op, e) ->
         let const_not i = if i = 0 then 1 else 0 in

@@ -18,10 +18,30 @@ open Core
 open Printf
 open Jaf
 
-let open_ain_file file major minor =
-  match file with
-  | Some path -> { ain=Alice.Ain.load path; const_vars=[] }
-  | None -> { ain=Alice.Ain.create major minor; const_vars=[] }
+let open_context file major minor import_decl =
+  (* open/create the output ain file *)
+  let ain =
+    match file with
+    | Some path -> Alice.Ain.load path
+    | None -> Alice.Ain.create major minor
+  in
+  (* open/link the import ain files *)
+  let import_ain =
+    let load_import_ain base file =
+      let p = Alice.Ain.load file in
+      Link.link base p;
+      Alice.Ain.free p
+    in
+    match import_decl with
+    | [] -> Alice.Ain.create (Alice.Ain.version ain) (Alice.Ain.minor_version ain)
+    | f::rest ->
+        let base = Alice.Ain.load f in
+        List.iter rest ~f:(load_import_ain base);
+        base
+  in
+  if not (phys_equal (Alice.Ain.version ain) (Alice.Ain.version import_ain)) then
+    failwith "Import .ain file version doesn't match output version";
+  { ain; import_ain; const_vars=[] }
 
 let parse_jaf jaf_file =
   let do_parse file =
@@ -43,7 +63,7 @@ let compile_jaf ctx jaf_file decl_only =
     TypeAnalysis.check_types ctx jaf;
     ConstEval.evaluate_constant_expressions ctx jaf;
     VariableAlloc.allocate_variables ctx jaf;
-    SanityCheck.check_invariants jaf; (* TODO: disable in release builds *)
+    SanityCheck.check_invariants ctx jaf; (* TODO: disable in release builds *)
     Compiler.compile ctx jaf
   end
 
@@ -156,9 +176,11 @@ let cmd_compile_jaf =
         ~doc:"version The output .ain file minor version (default: 0)"
       and decl_only = flag "-declarations-only" no_arg
         ~doc:" Output declarations only"
+      and import_decl = flag "-import-declarations" (listed Filename.arg_type)
+        ~doc:"ain-file Import declarations from the given .ain file"
       in
       fun () ->
-        let ctx = open_ain_file ain_file ain_version ain_minor_version in
+        let ctx = open_context ain_file ain_version ain_minor_version import_decl in
         compile_source_files ctx output_file source_files decl_only)
 
 let () =

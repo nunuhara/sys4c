@@ -202,10 +202,20 @@ type ast_node =
 
 type context = {
   ain : Alice.Ain.t;
+  import_ain : Alice.Ain.t;
   mutable const_vars : variable list
 }
 
-class ivisitor = object (self)
+type resolved_name =
+  | ResolvedLocal of variable
+  | ResolvedConstant of variable
+  | ResolvedGlobal of Alice.Ain.Variable.t
+  | ResolvedFunction of int
+  | ResolvedLibrary of int
+  | ResolvedSystem
+  | UnresolvedName
+
+class ivisitor ctx = object (self)
 
   val environment = object (self)
     val mutable stack = []
@@ -242,7 +252,7 @@ class ivisitor = object (self)
       | Some f -> f.class_index
       | None -> None
 
-    method get name =
+    method get_local name =
       let var_eq _ (v : variable) = String.equal v.name name in
       let rec search vars rest =
         match List.findi vars ~f:var_eq with
@@ -254,6 +264,64 @@ class ivisitor = object (self)
             end
       in
       search variables stack
+
+    method resolve name =
+      let ain_resolve ain =
+        match Alice.Ain.get_global ain name with
+        | Some g -> ResolvedGlobal g
+        | None ->
+            begin match Alice.Ain.get_function ain name with
+            | Some f -> ResolvedFunction f.index
+            | None ->
+                begin match Alice.Ain.get_library_index ain name with
+                | Some i -> ResolvedLibrary i
+                | None -> UnresolvedName
+                end
+            end
+      in
+      match name with
+      | "system" ->
+          (* NOTE: on ain v11+, "system" is a library *)
+          if Alice.Ain.version_gte ctx.ain 11 0 then
+            begin match Alice.Ain.get_library_index ctx.ain "system" with
+            | Some i -> ResolvedLibrary i
+            | None -> UnresolvedName
+            end
+          else
+            ResolvedSystem
+      | "super" ->
+          begin match current_function with
+          | Some { super_index=Some super_no; _} -> ResolvedFunction super_no
+          | _ -> UnresolvedName
+          end
+      | _ ->
+          begin match self#get_local name with
+          | Some v -> ResolvedLocal v
+          | None ->
+              begin match List.findi ctx.const_vars ~f:(fun _ (v:variable) -> String.equal v.name name) with
+              | Some (_, v) -> ResolvedConstant v
+              | None ->
+                  begin match ain_resolve ctx.ain with
+                  | UnresolvedName ->
+                      (* Try to import declaration from import_ain *)
+                      begin match ain_resolve ctx.import_ain with
+                      | ResolvedGlobal g ->
+                          let no = Alice.Ain.write_new_global ctx.ain g in
+                          ResolvedGlobal (Alice.Ain.get_global_by_index ctx.ain no)
+                      | ResolvedFunction i ->
+                          let f = Alice.Ain.get_function_by_index ctx.import_ain i in
+                          let no = Alice.Ain.write_new_function ctx.ain f in
+                          ResolvedFunction (Alice.Ain.get_function_by_index ctx.ain no).index
+                      | ResolvedLibrary _ ->
+                          failwith "importing of libraries not implemented"
+                      | ResolvedLocal _ | ResolvedConstant _ | ResolvedSystem ->
+                          failwith "ain_resolve returned invalid result"
+                      | UnresolvedName -> UnresolvedName
+                      end
+                  | result -> result
+                  end
+              end
+          end
   end
 
   method visit_expression (e : expression) =

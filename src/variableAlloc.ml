@@ -19,7 +19,7 @@ open Jaf
 open CompileError
 
 class variable_alloc_visitor ctx = object (self)
-  inherit ivisitor as super
+  inherit ivisitor ctx as super
 
   val mutable vars : variable list = []
 

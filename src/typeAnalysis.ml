@@ -90,7 +90,7 @@ let type_check_struct parent actual =
   | None -> compiler_bug "tried to type check untyped expression" (Some parent)
 
 class type_analyze_visitor ctx = object (self)
-  inherit ivisitor as super
+  inherit ivisitor ctx as super
 
   (* an lvalue is an expression which denotes a location that can be assigned to/referenced *)
   method check_lvalue (e:expression) (parent:ast_node) =
@@ -156,60 +156,28 @@ class type_analyze_visitor ctx = object (self)
         expr.valuetype <- Some (Alice.Ain.Type.make Int)
     | ConstString (_) ->
         expr.valuetype <- Some (Alice.Ain.Type.make String)
-    | Ident ("system", _) ->
-        (* NOTE: on ain v11+, "system" is a library *)
-        if Alice.Ain.version_gte ctx.ain 11 0 then
-          begin match Alice.Ain.get_library_index ctx.ain "system" with
-          | Some i ->
-              expr.node <- Ident ("system", Some (HLLName i));
-              expr.valuetype <- Some (Alice.Ain.Type.make Void)
-          | None ->
-              undefined_variable_error "system" (ASTExpression expr)
-          end
-        else
-          begin
-            expr.node <- Ident ("system", Some System);
-            expr.valuetype <- Some (Alice.Ain.Type.make Void)
-          end
-    | Ident ("super", _) ->
-        begin match environment#current_function with
-        | Some { super_index=Some super_no; _} ->
-            expr.node <- Ident ("super", Some (FunctionName super_no));
-            expr.valuetype <- Some (Alice.Ain.Type.make (Function super_no))
-        | _ ->
-            compile_error "'super' keyword used outside of override function" (ASTExpression expr)
-        end
     | Ident (name, _) ->
-        begin match environment#get name with
-        | Some v ->
+        begin match environment#resolve name with
+        | ResolvedLocal v ->
             expr.node <- Ident (name, Some (LocalVariable (-1)));
             set_valuetype { data=v.type_spec.data; qualifier=None }
-        | None ->
-            begin match List.findi ctx.const_vars ~f:(fun _ (v:variable) -> String.equal v.name name) with
-            | Some (_, v) ->
-                expr.node <- Ident (name, Some GlobalConstant);
-                set_valuetype { data=v.type_spec.data; qualifier=None }
-            | None ->
-                begin match Alice.Ain.get_global ctx.ain name with
-                | Some g ->
-                    expr.node <- Ident (name, Some (GlobalVariable (g.index)));
-                    expr.valuetype <- Some g.value_type
-                | None ->
-                    begin match Alice.Ain.get_function ctx.ain name with
-                    | Some f ->
-                        expr.node <- Ident (name, Some (FunctionName (f.index)));
-                        expr.valuetype <- Some (Alice.Ain.Type.make (Function f.index))
-                    | None ->
-                        begin match Alice.Ain.get_library_index ctx.ain name with
-                        | Some i ->
-                            expr.node <- Ident (name, Some (HLLName i));
-                            expr.valuetype <- Some (Alice.Ain.Type.make Void)
-                        | None ->
-                            undefined_variable_error name (ASTExpression expr)
-                        end
-                    end
-                end
-            end
+        | ResolvedConstant v ->
+            expr.node <- Ident (name, Some GlobalConstant);
+            set_valuetype { data=v.type_spec.data; qualifier=None }
+        | ResolvedGlobal g ->
+            expr.node <- Ident (name, Some (GlobalVariable (g.index)));
+            expr.valuetype <- Some g.value_type
+        | ResolvedFunction i ->
+            expr.node <- Ident (name, Some (FunctionName (i)));
+            expr.valuetype <- Some (Alice.Ain.Type.make (Function i))
+        | ResolvedLibrary i ->
+            expr.node <- Ident (name, Some (HLLName i));
+            expr.valuetype <- Some (Alice.Ain.Type.make Void)
+        | ResolvedSystem ->
+            expr.node <- Ident ("system", Some System);
+            expr.valuetype <- Some (Alice.Ain.Type.make Void)
+        | UnresolvedName ->
+            undefined_variable_error name (ASTExpression expr)
         end
     | Unary (op, e) ->
         begin match op with
@@ -484,7 +452,7 @@ class type_analyze_visitor ctx = object (self)
         (* check that lhs is a reference variable of the appropriate type *)
         begin match lhs.node with
         | Ident (name, _) ->
-            begin match environment#get name with
+            begin match environment#get_local name with
             | Some v ->
                 begin match v.type_spec.qualifier with
                 | Some Ref ->

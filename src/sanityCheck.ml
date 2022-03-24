@@ -17,8 +17,8 @@
 open Jaf
 open CompileError
 
-class sanity_check_visitor = object
-  inherit ivisitor as super
+class sanity_check_visitor ctx = object
+  inherit ivisitor ctx as super
 
   method! visit_expression expr =
     super#visit_expression expr;
@@ -67,5 +67,5 @@ class sanity_check_visitor = object
     | _ -> ()
 end
 
-let check_invariants decls =
-  (new sanity_check_visitor)#visit_toplevel decls
+let check_invariants ctx decls =
+  (new sanity_check_visitor ctx)#visit_toplevel decls
