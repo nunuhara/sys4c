@@ -24,6 +24,8 @@ exception Not_lvalue_error of expression * ast_node
 exception Const_error of variable
 exception CompileError of string * ast_node
 exception CompilerBug of string * ast_node option
+exception LinkError of string
+exception LinkerBug of string
 
 let data_type_error data expr parent =
   raise (Type_error ({data=data; is_ref=false}, expr, parent))
@@ -48,3 +50,9 @@ let compile_error str node =
 
 let compiler_bug str node =
   raise (CompilerBug (str, node))
+
+let link_error str =
+  raise (LinkError (str))
+
+let linker_bug str =
+  raise (LinkerBug (str))

@@ -310,8 +310,8 @@ class ivisitor ctx = object (self)
                           ResolvedGlobal (Alice.Ain.get_global_by_index ctx.ain no)
                       | ResolvedFunction i ->
                           let f = Alice.Ain.get_function_by_index ctx.import_ain i in
-                          let no = Alice.Ain.write_new_function ctx.ain f in
-                          ResolvedFunction (Alice.Ain.get_function_by_index ctx.ain no).index
+                          Alice.Ain.Function.set_undefined f;
+                          ResolvedFunction (Alice.Ain.write_new_function ctx.ain f)
                       | ResolvedLibrary _ ->
                           failwith "importing of libraries not implemented"
                       | ResolvedLocal _ | ResolvedConstant _ | ResolvedSystem ->

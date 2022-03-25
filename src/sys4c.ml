@@ -29,7 +29,7 @@ let open_context file major minor import_decl =
   let import_ain =
     let load_import_ain base file =
       let p = Alice.Ain.load file in
-      Link.link base p;
+      Link.link base p true;
       Alice.Ain.free p
     in
     match import_decl with
@@ -67,12 +67,12 @@ let compile_jaf ctx jaf_file decl_only =
     Compiler.compile ctx jaf
   end
 
-let compile_source_files ctx output_file source_files decl_only =
+let compile_source_files ctx output_file source_files decl_only compile_unit =
   let compile_file f =
     if Filename.check_suffix f ".jaf" then
       compile_jaf ctx (Some f) decl_only
     else if Filename.check_suffix f ".ain" then
-      Link.link ctx.ain (Alice.Ain.load f)
+      Link.link ctx.ain (Alice.Ain.load f) decl_only
     else
       failwith "unsupported file type"
   in
@@ -81,6 +81,8 @@ let compile_source_files ctx output_file source_files decl_only =
     | [] -> compile_jaf ctx None decl_only
     | _ -> List.iter source_files ~f:(fun f -> compile_file f)
     end;
+    if not compile_unit then
+      Link.check_undefined ctx.ain;
     Alice.Ain.write ctx.ain output_file;
     Alice.Ain.free ctx.ain
   with
@@ -126,6 +128,10 @@ let compile_source_files ctx output_file source_files decl_only =
       printf "\tin: %s\n" (ast_to_string node);
       Alice.Ain.free ctx.ain;
       exit 1
+  | CompileError.LinkError (msg) ->
+      printf "Error: %s\n" msg;
+      Alice.Ain.free ctx.ain;
+      exit 1
   | CompileError.CompilerBug (msg, node) ->
       printf "Error: %s\n" msg;
       begin match node with
@@ -133,6 +139,11 @@ let compile_source_files ctx output_file source_files decl_only =
       | None -> ()
       end;
       printf "(This is a compiler bug!)";
+      Alice.Ain.free ctx.ain;
+      exit 1
+  | CompileError.LinkerBug (msg) ->
+      printf "Error: %s\n" msg;
+      printf "(This is a linker bug!)";
       Alice.Ain.free ctx.ain;
       exit 1
 
@@ -178,10 +189,12 @@ let cmd_compile_jaf =
         ~doc:" Output declarations only"
       and import_decl = flag "-import-declarations" (listed Filename.arg_type)
         ~doc:"ain-file Import declarations from the given .ain file"
+      and compile_unit = flag "-compile-unit" no_arg
+        ~doc:" Compile as a unit (allow undefined functions)"
       in
       fun () ->
         let ctx = open_context ain_file ain_version ain_minor_version import_decl in
-        compile_source_files ctx output_file source_files decl_only)
+        compile_source_files ctx output_file source_files decl_only compile_unit)
 
 let () =
   Command.run ~version:"0.1" cmd_compile_jaf;

@@ -16,6 +16,7 @@
 
 open Core
 open Alice.Ain
+open CompileError
 
 type reloc_t = {
   globals : (int, int) Hashtbl.t;
@@ -34,10 +35,10 @@ let make_reloc_tables () =
 let check_hll_defs a b =
   let n = nr_libraries a in
   if not (phys_equal (nr_libraries b) n) then
-    failwith "nr_libraries not equal";
+    link_error "HLL declaration mismatch: Library count not equal";
   let check_lib i =
     if not (Library.equal (Library.of_int a i) (Library.of_int b i)) then
-      failwith "library not equal"
+      link_error "HLL declaration mismatch: Library not equal"
   in
   List.iter (List.init n ~f:(~+)) ~f:check_lib
 
@@ -47,7 +48,7 @@ let link_global reloc ain (g:Variable.t) =
     | Some existing_g ->
         (* ensure definitions match *)
         if not (Variable.equal g existing_g) then
-          failwith "globals not equal"; (* TODO: exception *)
+          link_error (Printf.sprintf "Global declaration mismatch: %s" g.name);
         existing_g.index
     | None ->
         (* add global to ain file *)
@@ -62,11 +63,16 @@ let link_function reloc ain (f:Function.t) =
     | Some existing_f ->
         (* ensure definitions match *)
         if not (Function.equal f existing_f) then
-          failwith "functions not equal"; (* TODO: exception *)
+          link_error (Printf.sprintf "Function declaration mismatch: %s" f.name);
         existing_f.index
     | None ->
         (* add function to ain file *)
-        write_new_function ain f
+        let no = write_new_function ain f in
+        if String.equal f.name "main" then
+          Alice.Ain.set_main_function ain no
+        else if String.equal f.name "message" then
+          Alice.Ain.set_message_function ain no;
+        no
   in
   (* add relocation to table *)
   Hashtbl.add_exn reloc ~key:f.index ~data:no
@@ -76,12 +82,12 @@ let rec link_type reloc ain (v:Type.t) =
   | Struct no ->
       begin match Hashtbl.find reloc.structs no with
       | Some reloc_no -> {v with data=(Struct reloc_no)}
-      | None -> failwith "struct type not found"
+      | None -> linker_bug (Printf.sprintf "struct type not found: %d" no)
       end
   | FuncType no ->
       begin match Hashtbl.find reloc.functypes no with
       | Some reloc_no -> {v with data=(FuncType reloc_no)}
-      | None -> failwith "functype not found"
+      | None -> linker_bug (Printf.sprintf "functype not found: %d" no)
       end
   | Delegate _ ->
       failwith "delegate linking not implemented"
@@ -108,7 +114,7 @@ let link_struct reloc ain (s:Struct.t) =
     | Some existing_s ->
         (* ensure definitions match *)
         if not (Struct.equal s existing_s) then
-          failwith "structs not equal"; (* TODO: exception *)
+          link_error (Printf.sprintf "Struct declaration mismatch: %s" s.name);
         existing_s.index
     | None ->
         (* add struct to ain file *)
@@ -125,12 +131,12 @@ let link_struct_ctor_dtor func_reloc (s:Struct.t) =
   if s.constructor >= 0 then
     begin match Hashtbl.find func_reloc s.constructor with
     | Some i -> s.constructor <- i
-    | None -> failwith "oops"
+    | None -> linker_bug (Printf.sprintf "constructor declaration not found: %s" s.name)
     end;
   if s.destructor >= 0 then
     begin match Hashtbl.find func_reloc s.destructor with
     | Some i -> s.destructor <- i
-    | None -> failwith "oops"
+    | None -> linker_bug (Printf.sprintf "destructor declaration not found: %s" s.name)
     end
 
 let link_functype reloc ain (f:FunctionType.t) =
@@ -139,7 +145,7 @@ let link_functype reloc ain (f:FunctionType.t) =
     | Some existing_f ->
         (* ensure definitions match *)
         if not (FunctionType.equal f existing_f) then
-          failwith "functypes not equal"; (* TODO: exception *)
+          link_error (Printf.sprintf "Function type declaration mismatch: %s" f.name);
         existing_f.index
     | None ->
         (* add functype to ain file *)
@@ -162,27 +168,27 @@ let link_code reloc a b =
       | String ->
           begin match get_string b v with
           | Some str -> add_string a str
-          | None -> failwith "invalid string index"
+          | None -> link_error (Printf.sprintf "Invalid string index: %d" v)
           end
       | Message ->
           begin match get_message b v with
           | Some msg -> add_message a msg
-          | None -> failwith "invalid message index"
+          | None -> link_error (Printf.sprintf "Invalid message index: %d" v)
           end
       | Function ->
           begin match Hashtbl.find reloc.functions v with
           | Some fno -> fno
-          | None -> failwith "invalid function index"
+          | None -> link_error (Printf.sprintf "Invalid function index: %d" v)
           end
       | Global ->
           begin match Hashtbl.find reloc.globals v with
           | Some gno -> gno
-          | None -> failwith "invalid global index"
+          | None -> link_error (Printf.sprintf "Invalid global index: %d" v)
           end
       | Struct ->
           begin match Hashtbl.find reloc.structs v with
           | Some sno -> sno
-          | None -> failwith "invalid struct index"
+          | None -> link_error (Printf.sprintf "Invalid struct index: %d" v)
           end
       | File -> failwith "files not implemented"
       | Delegate -> failwith "delegates not implemented"
@@ -190,15 +196,22 @@ let link_code reloc a b =
       | Int | Float | Local | Syscall | Library | LibraryFunction -> v
     in
     (* map arguments from b-indices to a-indices via relocation tables *)
+    let opcode = DASM.opcode dasm in
     let args = List.map2_exn (DASM.argument_types dasm) (DASM.arguments dasm) ~f:map_argument in
     (* write remapped instruction to output buffer *)
-    Alice.CBuffer.write_int16 buffer (DASM.opcode dasm);
-    List.iter args ~f:(fun v -> Alice.CBuffer.write_int32 buffer v)
+    Alice.CBuffer.write_int16 buffer opcode;
+    List.iter args ~f:(fun v -> Alice.CBuffer.write_int32 buffer v);
+    (* update function address when encountering FUNC instruction *)
+    if phys_equal opcode 0x61 then begin
+      let f = Alice.Ain.get_function_by_index a (Option.value_exn (List.hd args)) in
+      f.address <- code_offset + (Alice.CBuffer.pos buffer);
+      Alice.Ain.Function.write a f
+    end
   in
   Alice.Ain.foreach_instruction b ~f:instruction_iter;
   Alice.Ain.append_bytecode a buffer
 
-let link a b =
+let link a b decl_only =
   check_hll_defs a b;
   (* create hash tables mapping relocations of objects from b to a *)
   let reloc = make_reloc_tables () in
@@ -219,6 +232,12 @@ let link a b =
   (* 3rd pass to update constructor/destructor indices in struct objects *)
   struct_iter a ~f:(link_struct_ctor_dtor reloc.functions) ~from:struct_start;
   (* append code from b to a, updating indices per relocation tables *)
-  if (Alice.Ain.code_size b) > 0 then
+  if (not decl_only) && (Alice.Ain.code_size b) > 0 then
     link_code reloc a b
 
+let check_undefined ain =
+  let check_function (f:Function.t) =
+    if not (Alice.Ain.Function.is_defined f) then
+      link_error (Printf.sprintf "Undefined function: %s" f.name)
+  in
+  function_iter ain ~f:check_function

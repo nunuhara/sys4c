@@ -20,3 +20,8 @@ void _buffer_clear(struct buffer *b)
 {
 	b->index = 0;
 }
+
+int _buffer_pos(struct buffer *b)
+{
+	return b->index;
+}

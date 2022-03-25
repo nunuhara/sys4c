@@ -15,6 +15,8 @@ let free = foreign "_buffer_free" (buffer_ptr @-> returning void)
 
 let clear = foreign "_buffer_clear" (buffer_ptr @-> returning void)
 
+let pos = foreign "_buffer_pos" (buffer_ptr @-> returning int)
+
 let write_int16 p i =
   let write_int16' = foreign "buffer_write_int16" (buffer_ptr @-> uint16_t @-> returning void) in
   write_int16' p (Unsigned.UInt16.of_int i)

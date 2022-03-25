@@ -548,6 +548,12 @@ module Function = struct
     && (List.for_all2_exn a.vars b.vars ~f:Variable.equal)
     && (Bool.equal a.is_label b.is_label)
     && (a.is_lambda = b.is_lambda)
+
+  let set_undefined f =
+    f.address <- 1
+
+  let is_defined f =
+    not (phys_equal f.address 1)
 end
 
 (** Bindings for `struct ain_initval` objects. *)
