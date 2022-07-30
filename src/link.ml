@@ -64,6 +64,13 @@ let link_function reloc ain (f:Function.t) =
         (* ensure definitions match *)
         if not (Function.equal f existing_f) then
           link_error (Printf.sprintf "Function declaration mismatch: %s" f.name);
+        if Function.is_defined f then begin
+          (* ensure function is only defined once *)
+          if Function.is_defined existing_f then
+            link_error (Printf.sprintf "Multiple definitions for function: %s" f.name);
+          (* add local variables to existing declaration *)
+          existing_f.vars <- f.vars
+        end;
         existing_f.index
     | None ->
         (* add function to ain file *)
@@ -240,4 +247,30 @@ let check_undefined ain =
     if not (Alice.Ain.Function.is_defined f) then
       link_error (Printf.sprintf "Undefined function: %s" f.name)
   in
-  function_iter ain ~f:check_function
+  function_iter ain ~f:check_function ~from:1
+
+let declarations_match master ain =
+  let check_global (g:Variable.t) =
+    match get_global master g.name with
+    | Some master_g -> Variable.equal master_g g
+    | None -> false
+  in
+  let check_function (f:Function.t) =
+    match get_function master f.name with
+    | Some master_f -> Function.equal master_f f
+    | None -> false
+  in
+  let check_struct (s:Struct.t) =
+    match get_struct master s.name with
+    | Some master_s -> Struct.equal master_s s
+    | None -> false
+  in
+  let check_functype (ft:FunctionType.t) =
+    match get_functype master ft.name with
+    | Some master_ft -> FunctionType.equal master_ft ft
+    | None -> false
+  in
+  global_for_all ain ~f:check_global
+  && function_for_all ain ~f:check_function ~from:1
+  && struct_for_all ain ~f:check_struct
+  && functype_for_all ain ~f:check_functype

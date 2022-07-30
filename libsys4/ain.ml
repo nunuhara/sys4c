@@ -544,16 +544,16 @@ module Function = struct
   let equal a b =
     (String.equal a.name b.name)
     && (a.nr_args = b.nr_args)
-    && ((List.length a.vars) = (List.length b.vars))
-    && (List.for_all2_exn a.vars b.vars ~f:Variable.equal)
+    && (List.for_all2_exn (List.take a.vars a.nr_args) (List.take b.vars b.nr_args) ~f:Variable.equal)
     && (Bool.equal a.is_label b.is_label)
     && (a.is_lambda = b.is_lambda)
 
   let set_undefined f =
-    f.address <- 1
+    f.address <- 1;
+    f.vars <- List.take f.vars f.nr_args
 
   let is_defined f =
-    not (phys_equal f.address 1)
+    f.address > 1
 end
 
 (** Bindings for `struct ain_initval` objects. *)
@@ -1130,6 +1130,10 @@ let nr_structs = foreign "_ain_nr_structures" (ain_ptr @-> returning int)
 let nr_functypes = foreign "_ain_nr_functypes" (ain_ptr @-> returning int)
 let nr_libraries = foreign "_ain_nr_libraries" (ain_ptr @-> returning int)
 
+let global_iter' from iter p =
+  let globals = (foreign "_ain_globals" (ain_ptr @-> returning (ptr Variable.t_c))) p in
+  iter (globals +@ from) ((nr_globals p) - from) from
+
 let global_iter ?(from = 0) ~f p =
   let rec iter g n i =
     if n <= 0 then
@@ -1139,8 +1143,24 @@ let global_iter ?(from = 0) ~f p =
       iter (g +@ 1) (n - 1) (i + 1)
     end
   in
-  let globals = (foreign "_ain_globals" (ain_ptr @-> returning (ptr Variable.t_c))) p in
-  iter (globals +@ from) ((nr_globals p) - from) from
+  global_iter' from iter p
+
+let global_for_all ?(from = 0) ~f p =
+  let rec iter g n i =
+    if n <= 0 then
+      true
+    else begin
+      if f (Variable.of_ptr g i) then
+        iter (g +@ 1) (n - 1) (i + 1)
+      else
+        false
+    end
+  in
+  global_iter' from iter p
+
+let function_iter' from iter p =
+  let functions = (foreign "_ain_functions" (ain_ptr @-> returning (ptr Function.t_c))) p in
+  iter (functions +@ from) ((nr_functions p) - from) from
 
 let function_iter ?(from = 0) ~f p =
   let rec iter c_f n i =
@@ -1151,8 +1171,24 @@ let function_iter ?(from = 0) ~f p =
       iter (c_f +@ 1) (n - 1) (i + 1)
     end
   in
-  let functions = (foreign "_ain_functions" (ain_ptr @-> returning (ptr Function.t_c))) p in
-  iter (functions +@ from) ((nr_functions p) - from) from
+  function_iter' from iter p
+
+let function_for_all ?(from = 0) ~f p =
+  let rec iter c_f n i =
+    if n <= 0 then
+      true
+    else begin
+      if f (Function.of_ptr c_f i) then
+        iter (c_f +@ 1) (n - 1) (i + 1)
+      else
+        false
+    end
+  in
+  function_iter' from iter p
+
+let struct_iter' from iter p =
+  let structs = (foreign "_ain_structures" (ain_ptr @-> returning (ptr Struct.t_c))) p in
+  iter (structs +@ from) ((nr_structs p) - from) from
 
 let struct_iter ?(from = 0) ~f p =
   let rec iter s n i =
@@ -1163,8 +1199,24 @@ let struct_iter ?(from = 0) ~f p =
       iter (s +@ 1) (n - 1) (i + 1)
     end
   in
-  let structs = (foreign "_ain_structures" (ain_ptr @-> returning (ptr Struct.t_c))) p in
-  iter (structs +@ from) ((nr_structs p) - from) from
+  struct_iter' from iter p
+
+let struct_for_all ?(from = 0) ~f p =
+  let rec iter s n i =
+    if n <= 0 then
+      true
+    else begin
+      if f (Struct.of_ptr s i) then
+        iter (s +@ 1) (n - 1) (i + 1)
+      else
+        false
+    end
+  in
+  struct_iter' from iter p
+
+let functype_iter' from iter p =
+  let functypes = (foreign "_ain_functypes" (ain_ptr @-> returning (ptr FunctionType.t_c))) p in
+  iter (functypes +@ from) ((nr_functypes p) - from) from
 
 let functype_iter ?(from = 0) ~f p =
   let rec iter ft n i =
@@ -1175,8 +1227,20 @@ let functype_iter ?(from = 0) ~f p =
       iter (ft +@ 1) (n - 1) (i + 1)
     end
   in
-  let functypes = (foreign "_ain_functypes" (ain_ptr @-> returning (ptr FunctionType.t_c))) p in
-  iter (functypes +@ from) ((nr_functypes p) - from) from
+  functype_iter' from iter p
+
+let functype_for_all ?(from = 0) ~f p =
+  let rec iter ft n i =
+    if n <= 0 then
+      true
+    else begin
+      if f (FunctionType.of_ptr ft i) then
+        iter (ft +@ 1) (n - 1) (i + 1)
+      else
+        false
+    end
+  in
+  functype_iter' from iter p
 
 module DASM = struct
   type t = unit ptr

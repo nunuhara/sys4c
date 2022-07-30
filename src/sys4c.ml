@@ -18,40 +18,15 @@ open Core
 open Printf
 open Jaf
 
-let open_context file major minor import_decl =
-  (* open/create the output ain file *)
-  let ain =
-    match file with
-    | Some path -> Alice.Ain.load path
-    | None -> Alice.Ain.create major minor
-  in
-  (* open/link the import ain files *)
-  let import_ain =
-    let load_import_ain base file =
-      let p = Alice.Ain.load file in
-      Link.link base p true;
-      Alice.Ain.free p
-    in
-    match import_decl with
-    | [] -> Alice.Ain.create (Alice.Ain.version ain) (Alice.Ain.minor_version ain)
-    | f::rest ->
-        let base = Alice.Ain.load f in
-        List.iter rest ~f:(load_import_ain base);
-        base
-  in
-  if not (phys_equal (Alice.Ain.version ain) (Alice.Ain.version import_ain)) then
-    failwith "Import .ain file version doesn't match output version";
-  { ain; import_ain; const_vars=[] }
-
 let parse_jaf jaf_file =
   let do_parse file =
     let lexbuf = Lexing.from_channel file in
     Parser.main Lexer.token lexbuf
   in
   match jaf_file with
-  | Some "-" | None ->
+  | "-" ->
       do_parse In_channel.stdin
-  | Some path ->
+  | path ->
       In_channel.with_file path ~f:(fun file -> do_parse file)
 
 let compile_jaf ctx jaf_file decl_only =
@@ -67,24 +42,69 @@ let compile_jaf ctx jaf_file decl_only =
     Compiler.compile ctx jaf
   end
 
-let compile_source_files ctx output_file source_files decl_only compile_unit =
+let compile_sources sources imports major minor decl_only =
+  (* open/create the output .ain file *)
+  (* XXX: if the first file is a .ain file, open it instead of linking against a blank file *)
+  let (ain, sources) =
+    match sources with
+    | [] ->
+        (Alice.Ain.create major minor, ["-"])
+    | file::rest when (Filename.check_suffix file ".ain") ->
+        (Alice.Ain.load file, rest)
+    | _ ->
+        (Alice.Ain.create major minor, sources)
+  in
+  (* open/link the import .ain files *)
+  let import_ain =
+    let load_import_ain base file =
+      let p = Alice.Ain.load file in
+      Link.link base p true;
+      Alice.Ain.free p
+    in
+    match imports with
+    | [] -> Alice.Ain.create (Alice.Ain.version ain) (Alice.Ain.minor_version ain)
+    | file::rest ->
+        let base = Alice.Ain.load file in
+        List.iter rest ~f:(load_import_ain base);
+        base
+  in
+  (* check versions *)
+  if not (phys_equal (Alice.Ain.version ain) (Alice.Ain.version import_ain)) then
+    failwith "Import .ain file version doesn't match output version";
+  (* compile sources *)
+  let ctx = { ain; import_ain; const_vars=[] } in
   let compile_file f =
     if Filename.check_suffix f ".jaf" then
-      compile_jaf ctx (Some f) decl_only
+      compile_jaf ctx f decl_only
     else if Filename.check_suffix f ".ain" then
       Link.link ctx.ain (Alice.Ain.load f) decl_only
     else
       failwith "unsupported file type"
   in
+  List.iter sources ~f:compile_file;
+  Alice.Ain.free ctx.import_ain;
+  ctx.ain
+
+let do_compile sources imports output major minor decl_only compile_unit match_decls =
   try
-    begin match source_files with
-    | [] -> compile_jaf ctx None decl_only
-    | _ -> List.iter source_files ~f:(fun f -> compile_file f)
+    (* create output .ain file by compiling/linking inputs *)
+    let ain = compile_sources sources imports major minor decl_only in
+    (* -m option: check if declarations match then return status code *)
+    begin match match_decls with
+    | [] -> ()
+    | _ ->
+        let decl_ain = compile_sources match_decls imports major minor true in
+        let matched = Link.declarations_match decl_ain ain in
+        Alice.Ain.free ain;
+        Alice.Ain.free decl_ain;
+        exit (if matched then 0 else 1)
     end;
-    if not compile_unit then
-      Link.check_undefined ctx.ain;
-    Alice.Ain.write ctx.ain output_file;
-    Alice.Ain.free ctx.ain
+    (* -c/-d option: skip final check for undefined functions *)
+    if (not compile_unit) && (not decl_only) then
+      Link.check_undefined ain;
+    (* write output .ain file to disk *)
+    Alice.Ain.write ain output;
+    Alice.Ain.free ain
   with
   | CompileError.Type_error (expected, actual, parent) ->
       let s_expected = Alice.Ain.Type.to_string expected in
@@ -99,21 +119,17 @@ let compile_source_files ctx output_file source_files decl_only compile_unit =
       printf "Error: Type error: expected %s; got %s\n" s_expected s_actual;
       Option.iter actual ~f:(fun e -> printf "\tat: %s\n" (expr_to_string e));
       printf "\tin: %s\n" (ast_to_string parent);
-      Alice.Ain.free ctx.ain;
       exit 1
   | CompileError.Undefined_variable (name, _) ->
       printf "Error: Undefined variable: %s\n" name;
-      Alice.Ain.free ctx.ain;
       exit 1
   | CompileError.Arity_error (f, args, parent) ->
       printf "Error: wrong number of arguments to function %s (expected %d; got %d)\n" f.name f.nr_args (List.length args);
       printf "\tin: %s\n" (ast_to_string parent);
-      Alice.Ain.free ctx.ain;
       exit 1
   | CompileError.Not_lvalue_error (expr, parent) ->
       printf "Error: not an lvalue: %s\n" (expr_to_string expr);
       printf "\tin: %s\n" (ast_to_string parent);
-      Alice.Ain.free ctx.ain;
       exit 1
   | CompileError.Const_error (var) ->
       begin match var.initval with
@@ -121,16 +137,13 @@ let compile_source_files ctx output_file source_files decl_only compile_unit =
       | None   -> printf "Error: const variable lacks initializer\n"
       end;
       printf "\tin: %s\n" (var_to_string var);
-      Alice.Ain.free ctx.ain;
       exit 1
   | CompileError.CompileError (msg, node) ->
       printf "Error: %s\n" msg;
       printf "\tin: %s\n" (ast_to_string node);
-      Alice.Ain.free ctx.ain;
       exit 1
   | CompileError.LinkError (msg) ->
       printf "Error: %s\n" msg;
-      Alice.Ain.free ctx.ain;
       exit 1
   | CompileError.CompilerBug (msg, node) ->
       printf "Error: %s\n" msg;
@@ -139,36 +152,11 @@ let compile_source_files ctx output_file source_files decl_only compile_unit =
       | None -> ()
       end;
       printf "(This is a compiler bug!)";
-      Alice.Ain.free ctx.ain;
       exit 1
   | CompileError.LinkerBug (msg) ->
       printf "Error: %s\n" msg;
       printf "(This is a linker bug!)";
-      Alice.Ain.free ctx.ain;
       exit 1
-
-(* Separate Compilation
-   --------------------
-
-   ** Will require either a custom build system (pje) or to expose some esoteric
-      functionality on the command line (e.g. 3.b below)
-
-   1 Do the Declarations passes for each source file to generate source_file.types.o
-   2 Combine all of the .types.o files into a single file, types.o
-   3 Recompile a source file IFF:
-       a. The source file was modified
-       b. Any of the unresolved type definitions in the existing .o file differ
-          from the corresponding definition in types.o
-   4 Link all .o files into a .ain file
-       * .o files are just incomplete .ain files
-       * Each .o file has it's code section appended to types.o
-           * A table mapping declaration indices from the .o file to the
-             corresponding indices in types.o is created
-           * After appending the code section, scan through every instruction
-             and update indices using the created table
-       * Once every .o file has been appended and updated, the output ain file
-         is complete
-*)
 
 let cmd_compile_jaf =
   Command.basic
@@ -176,25 +164,24 @@ let cmd_compile_jaf =
     ~readme: (fun () -> "Compile a .jaf file, optionally appending to an existing .ain file.")
     Command.Let_syntax.(
       let%map_open
-        source_files = anon (sequence ("source files" %: Filename.arg_type))
-      and ain_file = flag "-ain-file" (optional Filename.arg_type)
-        ~doc:"ain-file The input .ain file"
-      and output_file = flag "-output" (optional_with_default "out.ain" Filename.arg_type)
+        sources = anon (sequence ("source files" %: Filename.arg_type))
+      and output = flag "-output" (optional_with_default "out.ain" Filename.arg_type)
         ~doc:"out-file The output .ain file"
-      and ain_version = flag "-ain-version" (optional_with_default 4 int)
+      and major = flag "-ain-version" (optional_with_default 4 int)
         ~doc:"version The output .ain file version (default: 4)"
-      and ain_minor_version = flag "-ain-minor-version" (optional_with_default 0 int)
+      and minor = flag "-ain-minor-version" (optional_with_default 0 int)
         ~doc:"version The output .ain file minor version (default: 0)"
       and decl_only = flag "-declarations-only" no_arg
         ~doc:" Output declarations only"
-      and import_decl = flag "-import-declarations" (listed Filename.arg_type)
+      and imports = flag "-import-declarations" (listed Filename.arg_type)
         ~doc:"ain-file Import declarations from the given .ain file"
       and compile_unit = flag "-compile-unit" no_arg
         ~doc:" Compile as a unit (allow undefined functions)"
+      and match_decls = flag "-match-declarations" (listed Filename.arg_type)
+        ~doc:"ain-file Compare declarations against the given .ain file"
       in
       fun () ->
-        let ctx = open_context ain_file ain_version ain_minor_version import_decl in
-        compile_source_files ctx output_file source_files decl_only compile_unit)
+        do_compile sources imports output major minor decl_only compile_unit match_decls)
 
 let () =
   Command.run ~version:"0.1" cmd_compile_jaf;

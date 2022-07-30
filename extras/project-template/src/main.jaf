@@ -1,0 +1,9 @@
+int main(void)
+{
+	object s;
+	s.i = 42;
+	foo(s);
+	system.MsgBox("s.i = %d" % s.i);
+	system.Exit(0);
+	return 0;
+}
