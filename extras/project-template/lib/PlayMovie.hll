@@ -1,0 +1,6 @@
+int Init(void);
+int Load(string pIFileName);
+int Play(void);
+void Stop(void);
+int IsPlay(void);
+void Release(void);

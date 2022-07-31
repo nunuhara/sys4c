@@ -1,0 +1,2 @@
+int Load(string szPluginName);
+int IsLoad(string szPluginName);

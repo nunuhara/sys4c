@@ -1,0 +1,6 @@
+int Create(string szName);
+void Output(int nHandle, string szText);
+void Clear(int nHandle);
+int Save(int nHandle, string szFileName);
+bool EnableAutoSave(int nHandle, string szFileName);
+bool DisableAutoSave(int nHandle);

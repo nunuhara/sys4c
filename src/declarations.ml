@@ -211,3 +211,25 @@ end
 
 let define_types ctx decls =
   (new type_define_visitor ctx)#visit_toplevel decls
+
+let define_library ctx decls name =
+  let is_struct_def decl =
+    match decl with
+    | StructDef (_) -> true
+    | _ -> false
+  in
+  let (struct_defs, fun_decls) = List.partition_tf decls ~f:is_struct_def in
+  (* handle struct definitions *)
+  register_type_declarations ctx struct_defs;
+  resolve_types ctx struct_defs true;
+  define_types ctx struct_defs;
+  (* define library *)
+  let lib = Alice.Ain.add_library ctx.ain name in
+  let add_function = function
+    | Function (f) ->
+        Alice.Ain.Library.add_function lib (jaf_to_ain_hll_function f)
+    | decl ->
+        compiler_bug "unexpected declaration in .hll file" (Some(ASTDeclaration decl))
+  in
+  List.iter fun_decls ~f:add_function;
+  Alice.Ain.Library.write ctx.ain lib

@@ -1,0 +1,5 @@
+int Numof(void);
+void Clear(void);
+void Add(hll_struct log);
+void Get(int nIndex, ref hll_struct log);
+void ConvertFromMsgLogManager(int nIMsgLogManager);

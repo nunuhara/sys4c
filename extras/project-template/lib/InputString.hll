@@ -1,0 +1,8 @@
+void SetFont(int nSize, string pIName, int nWeight);
+void SetPos(int nX, int nY);
+void Begin(void);
+void End(void);
+void OpenIME(void);
+void CloseIME(void);
+string GetResultString(void);
+void ClearResultString(void);

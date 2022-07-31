@@ -1,0 +1,4 @@
+void Init(imain_system pIMainSystem);
+int ExistKeyFile(string pIFileName, int nKeyNum);
+int CheckProtectFile(string pIFileName, int nKeyNum);
+int CreateKeyFile(string pIFileName, int nKeyNum);

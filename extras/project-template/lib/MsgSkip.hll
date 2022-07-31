@@ -1,0 +1,10 @@
+int Init(string szName);
+void UseFlag(int nUse);
+void SetEnable(int nEnable);
+void SetState(int nState);
+void SetFlag(int nMsgNum);
+int GetEnable(void);
+int GetState(void);
+int GetFlag(int nMsgNum);
+int GetNumofMsg(void);
+int GetNumofFlag(void);

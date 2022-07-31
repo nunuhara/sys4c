@@ -1,0 +1,10 @@
+int Open(string szName, int nType);
+int Close(void);
+int Read(ref hll_struct pIVMStruct);
+int Write(hll_struct pIVMStruct);
+int Copy(string szSrcName, string szDstName);
+int Delete(string szName);
+int GetTime(string szName, ref hll_struct pIVMStruct);
+int SetFind(string szName);
+int GetFind(ref string szName);
+int MakeDirectory(string szName);

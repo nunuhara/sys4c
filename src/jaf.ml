@@ -84,8 +84,9 @@ and data_type =
   | Wrap     of type_specifier
   | HLLParam
   | HLLFunc
-  | Delegate
+  | Delegate of int
   | FuncType of string * int
+  | IMainSystem
 
 type ident_type =
   | LocalVariable of int
@@ -505,8 +506,9 @@ let rec data_type_to_string = function
   | Wrap t -> "wrap<" ^ (type_spec_to_string t) ^ ">"
   | HLLParam -> "hll_param"
   | HLLFunc -> "hll_func"
-  | Delegate -> "delegate"
+  | Delegate _ -> "delegate"
   | FuncType (s, _) -> s
+  | IMainSystem -> "IMainSystem"
 and type_spec_to_string ts =
   match ts.qualifier with
   | Some q -> (type_qualifier_to_string q) ^ " " ^ (data_type_to_string ts.data)
@@ -692,7 +694,7 @@ let ast_to_string = function
 let rec jaf_to_ain_data_type data =
   match data with
   | Untyped -> failwith "tried to convert Untyped to ain data type"
-  | Unresolved _ -> failwith "tried to covert Unresolved to ain data type"
+  | Unresolved _ -> failwith "tried to convert Unresolved to ain data type"
   | Void -> Alice.Ain.Type.Void
   | Int -> Alice.Ain.Type.Int
   | Bool -> Alice.Ain.Type.Bool
@@ -703,8 +705,9 @@ let rec jaf_to_ain_data_type data =
   | Wrap t -> Alice.Ain.Type.Wrap (jaf_to_ain_type t)
   | HLLParam -> Alice.Ain.Type.HLLParam
   | HLLFunc -> Alice.Ain.Type.HLLFunc
-  | Delegate -> failwith "delegates not yet supported"
+  | Delegate i -> (Alice.Ain.Type.Delegate i)
   | FuncType (_, i) -> Alice.Ain.Type.FuncType i
+  | IMainSystem -> Alice.Ain.Type.IMainSystem
 and jaf_to_ain_type spec =
   let is_ref =
     match spec.qualifier with
@@ -752,3 +755,11 @@ let jaf_to_ain_functype j_f (a_f:Alice.Ain.FunctionType.t) =
   a_f.nr_arguments <- List.length a_f.variables;
   a_f.return_type <- jaf_to_ain_type j_f.return;
   a_f
+
+let jaf_to_ain_hll_function j_f =
+  let jaf_to_ain_hll_argument (param:variable) =
+    Alice.Ain.Library.HLLArgument.create param.name (jaf_to_ain_type param.type_spec)
+  in
+  let return_type = jaf_to_ain_type j_f.return in
+  let arguments = List.map j_f.params ~f:jaf_to_ain_hll_argument in
+  Alice.Ain.Library.HLLFunction.create j_f.name return_type arguments

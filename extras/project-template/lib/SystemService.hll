@@ -1,0 +1,13 @@
+int GetMixerNumof(void);
+bool GetMixerName(int nNum, ref string szName);
+bool GetMixerVolume(int nNum, ref int nVolume);
+bool GetMixerMute(int nNum, ref bool bMute);
+bool SetMixerName(int nNum, string szName);
+bool SetMixerVolume(int nNum, int nVolume);
+bool SetMixerMute(int nNum, bool bMute);
+int GetGameVersion(void);
+bool AddURLMenu(string szTitle, string szURL);
+bool IsFullScreen(void);
+bool ChangeNormalScreen(void);
+bool ChangeFullScreen(void);
+void RestrainScreensaver(void);

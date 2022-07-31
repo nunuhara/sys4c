@@ -64,7 +64,8 @@ let func typespec name params body =
 %token LPAREN RPAREN RBRACKET LBRACKET LBRACE RBRACE
 %token QUESTION COLON SEMICOLON COMMA DOT
 /* types */
-%token VOID CHAR INT FLOAT BOOL STRING HLL_PARAM HLL_FUNC DELEGATE
+%token VOID CHAR INT FLOAT BOOL STRING HLL_STRUCT HLL_PARAM HLL_FUNC DELEGATE
+%token IMAINSYSTEM
 /* keywords */
 %token TRUE FALSE IF ELSE WHILE DO FOR THIS NEW TILDE
 %token GOTO CONTINUE BREAK RETURN
@@ -75,13 +76,20 @@ let func typespec name params body =
 %nonassoc IFX
 %nonassoc ELSE
 
-%start main
-%type <declaration list> main
+%start jaf
+%type <declaration list> jaf
+
+%start hll
+%type <declaration list> hll
 
 %%
 
-main
+jaf
   : external_declaration+ EOF { List.concat $1 }
+  ;
+
+hll
+  : hll_declaration+ EOF { List.concat $1 }
   ;
 
 primary_expression
@@ -235,15 +243,17 @@ constant_expression
   ;
 
 atomic_type_specifier
-  : VOID      { Void }
-  | CHAR      { Int }
-  | INT       { Int }
-  | FLOAT     { Float }
-  | BOOL      { Bool }
-  | STRING    { String }
-  | HLL_PARAM { HLLParam }
-  | HLL_FUNC  { HLLFunc }
-  | DELEGATE  { Delegate }
+  : VOID        { Void }
+  | CHAR        { Int }
+  | INT         { Int }
+  | FLOAT       { Float }
+  | BOOL        { Bool }
+  | STRING      { String }
+  | HLL_STRUCT  { Struct("hll_struct", -1) }
+  | HLL_PARAM   { HLLParam }
+  | HLL_FUNC    { HLLFunc }
+  | DELEGATE    { Delegate(-1) }
+  | IMAINSYSTEM { IMainSystem }
   ;
 
 type_qualifier
@@ -374,6 +384,13 @@ external_declaration
     { [Enum ({ name=None; values=$2 })] }
   | ENUM IDENTIFIER enumerator_list SEMICOLON
     { [Enum ({ name=Some $2; values=$3 })] }
+  ;
+
+hll_declaration
+  : declaration_specifiers IDENTIFIER parameter_list SEMICOLON
+    { [Function (func $1 $2 $3 [])] }
+  | STRUCT IDENTIFIER LBRACE struct_declaration+ RBRACE SEMICOLON
+    { [StructDef ({ name=$2; decls=(List.concat $4) })] }
   ;
 
 enumerator_list

@@ -2,13 +2,14 @@
 
 chdir $(dirname "$0")/libsys4/libsys4
 
-# files in subdirectories aren't available when building c stubs...
-cp include/system4.h ../system4.h
-cp include/system4/ain.h ../system4_ain.h
-cp include/system4/buffer.h ../system4_buffer.h
-cp include/system4/instructions.h ../system4_instructions.h
-cp include/system4/string.h ../system4_string.h
-cp include/system4/utfsjis.h ../system4_utfsjis.h
+# files in subdirectories aren't available when building c stubs
+# so we need to copy and flatten the include directory structure
+sed 's/#include "system4\//#include "system4_/g' include/system4.h > ../system4.h
+sed 's/#include "system4\//#include "system4_/g' include/system4/ain.h > ../system4_ain.h
+sed 's/#include "system4\//#include "system4_/g' include/system4/buffer.h > ../system4_buffer.h
+sed 's/#include "system4\//#include "system4_/g' include/system4/instructions.h > ../system4_instructions.h
+sed 's/#include "system4\//#include "system4_/g' include/system4/string.h > ../system4_string.h
+sed 's/#include "system4\//#include "system4_/g' include/system4/utfsjis.h > ../system4_utfsjis.h
 
 if [ ! -d build ]
 then

@@ -55,6 +55,16 @@ char *_ain_message(struct ain *ain, int i)
 	return (i < 0 || i >= ain->nr_messages) ? NULL : ain->messages[i]->text;
 }
 
+void _ain_variable_set_name(struct ain_variable *v, const char *name)
+{
+	v->name = xstrdup(name);
+}
+
+void _ain_variable_set_name2(struct ain_variable *v, const char *name)
+{
+	v->name2 = xstrdup(name);
+}
+
 // functions {{{
 
 int _ain_nr_functions(struct ain *ain)
@@ -167,6 +177,36 @@ struct ain_hll_function *_ain_library_function(struct ain *ain, int lib_no, int 
 struct ain_library *_ain_library(struct ain *ain, int i)
 {
 	return (i < 0 || i >= ain->nr_libraries) ? NULL : &ain->libraries[i];
+}
+
+void _ain_library_realloc_functions(struct ain_library *lib, int nr_functions)
+{
+	for (int i = 0; i < lib->nr_functions; i++) {
+		ain_free_hll_function(&lib->functions[i]);
+	}
+	free(lib->functions);
+	lib->functions = xcalloc(nr_functions, sizeof(struct ain_hll_function));
+	lib->nr_functions = nr_functions;
+}
+
+void _ain_hll_function_realloc_args(struct ain_hll_function *f, int nr_args)
+{
+	for (int i = 0; i < f->nr_arguments; i++) {
+		ain_free_hll_argument(&f->arguments[i]);
+	}
+	free(f->arguments);
+	f->arguments = xcalloc(nr_args, sizeof(struct ain_hll_argument));
+	f->nr_arguments = nr_args;
+}
+
+void _ain_set_hll_function_name(struct ain_hll_function *f, const char *name)
+{
+	f->name = xstrdup(name);
+}
+
+void _ain_set_hll_argument_name(struct ain_hll_argument *a, const char *name)
+{
+	a->name = xstrdup(name);
 }
 
 // libraries }}}

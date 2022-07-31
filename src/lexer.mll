@@ -161,6 +161,7 @@ rule token = parse
   | "float"                 { FLOAT }
   | "bool"                  { BOOL }
   | "string"                { STRING }
+  | "hll_struct"            { HLL_STRUCT }
   | "hll_param"             { HLL_PARAM }
   | "hll_func"              { HLL_FUNC }
   | "delegate"              { DELEGATE }
@@ -185,6 +186,7 @@ rule token = parse
   | "functype"              { FUNCTYPE }
   | "struct"                { STRUCT }
   | "enum"                  { ENUM }
+  | "imain_system"          { IMAINSYSTEM }
   | l as c                  { IDENTIFIER(c) } (* TODO: check_type *)
   | (l a* at) as s          { IDENTIFIER(s) } (* TODO: check_type *)
   | eof                     { EOF }

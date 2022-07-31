@@ -1,0 +1,10 @@
+int Numof(void);
+void AddInt(int nType, int nValue);
+void AddString(int nType, string pIString);
+int GetType(int nIndex);
+int GetInt(int nIndex);
+void GetString(int nIndex, ref string pIString);
+int Save(string pIStringFileName);
+int Load(string pIStringFileName);
+void SetLineMax(int nLineMax);
+int GetInterface(void);

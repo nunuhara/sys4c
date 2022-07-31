@@ -21,7 +21,7 @@ open Jaf
 let parse_jaf jaf_file =
   let do_parse file =
     let lexbuf = Lexing.from_channel file in
-    Parser.main Lexer.token lexbuf
+    Parser.jaf Lexer.token lexbuf
   in
   match jaf_file with
   | "-" ->
@@ -41,6 +41,17 @@ let compile_jaf ctx jaf_file decl_only =
     SanityCheck.check_invariants ctx jaf; (* TODO: disable in release builds *)
     Compiler.compile ctx jaf
   end
+
+let compile_hll ctx hll_file =
+  let do_parse file =
+    let lexbuf = Lexing.from_channel file in
+    Parser.hll Lexer.token lexbuf
+  in
+  let get_lib_name filename =
+    Filename.chop_extension (Filename.basename filename)
+  in
+  let hll = In_channel.with_file hll_file ~f:(fun file -> do_parse file) in
+  Declarations.define_library ctx hll (get_lib_name hll_file)
 
 let compile_sources sources imports major minor decl_only =
   (* open/create the output .ain file *)
@@ -76,6 +87,8 @@ let compile_sources sources imports major minor decl_only =
   let compile_file f =
     if Filename.check_suffix f ".jaf" then
       compile_jaf ctx f decl_only
+    else if Filename.check_suffix f ".hll" then
+      compile_hll ctx f
     else if Filename.check_suffix f ".ain" then
       Link.link ctx.ain (Alice.Ain.load f) decl_only
     else

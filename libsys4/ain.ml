@@ -406,8 +406,14 @@ module Variable = struct
     }
 
   let write_ptr ain src dst =
-    setf !@dst name src.name;
-    setf !@dst name2 src.name2;
+    let write_name =
+      foreign "_ain_variable_set_name" ((ptr t_c) @-> string @-> returning void)
+    in
+    let write_name2 =
+      foreign "_ain_variable_set_name2" ((ptr t_c) @-> string @-> returning void)
+    in
+    write_name dst src.name;
+    Option.iter src.name2 ~f:(fun name -> write_name2 dst name);
     Type.write_ptr ain src.value_type (addr (getf !@dst value_type));
     (* FIXME: should use Option.is_some, but dst.has_initval isn't boolean...? *)
     begin match src.initval with
@@ -702,10 +708,19 @@ module Library = struct
       value_type : Type.t
     }
 
+    let create name value_type = { name; value_type }
+
     let of_ptr p =
       { name = getf!@p name;
         value_type = Type.of_ptr (addr (getf !@p value_type))
       }
+
+    let write_ptr ain src dst =
+      let write_name =
+        foreign "_ain_set_hll_argument_name" ((ptr t_c) @-> string @-> returning void)
+      in
+      write_name dst src.name;
+      Type.write_ptr ain src.value_type (addr (getf !@dst value_type))
 
     let equal a b =
       (String.equal a.name b.name) && (Type.equal a.value_type b.value_type)
@@ -727,6 +742,14 @@ module Library = struct
       arguments : HLLArgument.t list
     }
 
+    let create name return_type arguments = {
+      index = -1;
+      lib_no = -1;
+      name = name;
+      return_type = return_type;
+      arguments = arguments
+    }
+
     let of_ptr p lib_no func_no =
       let rec arguments_of_ptr p n result =
         if n = 0 then
@@ -741,6 +764,24 @@ module Library = struct
         return_type = Type.of_ptr (addr (getf !@p return_type));
         arguments = arguments_of_ptr (getf !@p arguments) nr_args []
       }
+
+    let write_ptr ain src dst =
+      let write_name =
+        foreign "_ain_set_hll_function_name" ((ptr t_c) @-> string @-> returning void)
+      in
+      let realloc_arguments =
+        foreign "_ain_hll_function_realloc_args" ((ptr t_c) @-> int @-> returning void)
+      in
+      let rec write_arguments dst = function
+        | [] -> ()
+        | x::xs ->
+            HLLArgument.write_ptr ain x dst;
+            write_arguments (dst +@ 1) xs
+      in
+      write_name dst src.name;
+      Type.write_ptr ain src.return_type (addr (getf !@dst return_type));
+      realloc_arguments dst (List.length src.arguments);
+      write_arguments (getf !@dst arguments) src.arguments
 
     let equal a b =
       (String.equal a.name b.name)
@@ -758,8 +799,12 @@ module Library = struct
   type t = {
     index : int;
     name : string;
-    functions : HLLFunction.t list
+    mutable functions : HLLFunction.t list
   }
+
+  let add_function lib f =
+    let index = List.length lib.functions in
+    lib.functions <- List.append lib.functions [{f with index=index; lib_no=lib.index}]
 
   (* internal to Ain module *)
   let of_ptr p lib_no =
@@ -786,6 +831,21 @@ module Library = struct
   (** Get a library object by index from an ain file. *)
   let of_int ain no =
     of_ptr (c_of_int_checked ain no) no
+
+  let write ain lib =
+    let realloc_functions =
+      foreign "_ain_library_realloc_functions" ((ptr t_c) @-> int @-> returning void)
+    in
+    let rec write_functions dst = function
+      | [] -> ()
+      | x::xs ->
+          HLLFunction.write_ptr ain x dst;
+          write_functions (dst +@ 1) xs
+    in
+    let lib_c = c_of_int_checked ain lib.index in
+    (* XXX: name is fixed upon creation and never updated *)
+    realloc_functions lib_c (List.length lib.functions);
+    write_functions (getf !@lib_c functions) lib.functions
 
   let equal a b =
     (String.equal a.name b.name) && (List.for_all2_exn a.functions b.functions ~f:HLLFunction.equal)
@@ -964,7 +1024,7 @@ let add_functype' = foreign "ain_add_functype" (ain_ptr @-> string @-> returning
 let add_global = foreign "ain_add_global" (ain_ptr @-> string @-> returning int)
 let add_initval = foreign "ain_add_initval" (ain_ptr @-> int @-> returning int)
 let add_struct' = foreign "ain_add_struct" (ain_ptr @-> string @-> returning int)
-let add_library = foreign "ain_add_library" (ain_ptr @-> string @-> returning int)
+let add_library' = foreign "ain_add_library" (ain_ptr @-> string @-> returning int)
 let add_string = foreign "ain_add_string" (ain_ptr @-> string @-> returning int)
 let add_message = foreign "ain_add_message" (ain_ptr @-> string @-> returning int)
 let add_file = foreign "ain_add_file" (ain_ptr @-> string @-> returning int)
@@ -1112,6 +1172,9 @@ let function_of_hll_function_index ain lib_no fun_no =
       r
   | None ->
       failwith "_ain_library_function returned NULL"
+
+let add_library p name =
+  Library.of_int p (add_library' p name)
 
 let append_bytecode = foreign "_ain_append_bytecode" (ain_ptr @-> CBuffer.buffer_ptr @-> returning void)
 
