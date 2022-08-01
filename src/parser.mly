@@ -64,12 +64,12 @@ let func typespec name params body =
 %token LPAREN RPAREN RBRACKET LBRACKET LBRACE RBRACE
 %token QUESTION COLON SEMICOLON COMMA DOT
 /* types */
-%token VOID CHAR INT FLOAT BOOL STRING HLL_STRUCT HLL_PARAM HLL_FUNC DELEGATE
+%token VOID CHAR INT FLOAT BOOL STRING HLL_STRUCT HLL_PARAM HLL_FUNC HLL_DELEGATE
 %token IMAINSYSTEM
 /* keywords */
 %token TRUE FALSE IF ELSE WHILE DO FOR THIS NEW TILDE
 %token GOTO CONTINUE BREAK RETURN
-%token CONST REF OVERRIDE ARRAY WRAP FUNCTYPE STRUCT ENUM
+%token CONST REF OVERRIDE ARRAY WRAP FUNCTYPE DELEGATE STRUCT ENUM
 
 %token EOF
 
@@ -243,17 +243,17 @@ constant_expression
   ;
 
 atomic_type_specifier
-  : VOID        { Void }
-  | CHAR        { Int }
-  | INT         { Int }
-  | FLOAT       { Float }
-  | BOOL        { Bool }
-  | STRING      { String }
-  | HLL_STRUCT  { Struct("hll_struct", -1) }
-  | HLL_PARAM   { HLLParam }
-  | HLL_FUNC    { HLLFunc }
-  | DELEGATE    { Delegate(-1) }
-  | IMAINSYSTEM { IMainSystem }
+  : VOID         { Void }
+  | CHAR         { Int }
+  | INT          { Int }
+  | FLOAT        { Float }
+  | BOOL         { Bool }
+  | STRING       { String }
+  | HLL_STRUCT   { Struct("hll_struct", -1) }
+  | HLL_PARAM    { HLLParam }
+  | HLL_FUNC     { HLLFunc }
+  | HLL_DELEGATE { Delegate("hll_delegate", -1) }
+  | IMAINSYSTEM  { IMainSystem }
   ;
 
 type_qualifier
@@ -378,6 +378,8 @@ external_declaration
     { [Function (func $1 $2 $3 $4)] }
   | FUNCTYPE declaration_specifiers IDENTIFIER functype_parameter_list SEMICOLON
     { [FuncTypeDef (func $2 $3 $4 [])] }
+  | DELEGATE declaration_specifiers IDENTIFIER functype_parameter_list SEMICOLON
+    { [DelegateDef (func $2 $3 $4 [])] }
   | STRUCT IDENTIFIER LBRACE struct_declaration+ RBRACE SEMICOLON
     { [StructDef ({ name=$2; decls=(List.concat $4) })] }
   | ENUM enumerator_list SEMICOLON

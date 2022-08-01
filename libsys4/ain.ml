@@ -913,19 +913,25 @@ module FunctionType = struct
 
   (* internal to Ain module *)
   let c_of_int = foreign "_ain_functype" (ain_ptr @-> int @-> returning (ptr_opt t_c))
+  let delegate_c_of_int = foreign "_ain_delegate" (ain_ptr @-> int @-> returning (ptr_opt t_c))
 
   (* internal to Ain module *)
   let c_of_int_checked ain i =
     match c_of_int ain i with
     | None -> failwith "_ain_functype returned NULL"
     | Some obj -> obj
+  let delegate_c_of_int_checked ain i =
+    match delegate_c_of_int ain i with
+    | None -> failwith "_ain_delegate returned NULL"
+    | Some obj -> obj
 
   (** Get a functype object by index from an ain file. *)
   let of_int ain no =
     of_ptr (c_of_int_checked ain no) no
+  let delegate_of_int ain no =
+    of_ptr (delegate_c_of_int_checked ain no) no
 
-  (** Commit any changes to a functype object to an ain file. *)
-  let write ain f =
+  let write_ptr ain src dst =
     let realloc_vars =
       foreign "_ain_functype_realloc_vars" ((ptr t_c) @-> int @->returning void)
     in
@@ -935,12 +941,17 @@ module FunctionType = struct
           Variable.write_ptr ain x dst;
           write_vars (dst +@ 1) xs
     in
-    let f_c = c_of_int_checked ain f.index in
     (* XXX: name is fixed upon creation and never updated *)
-    Type.write_ptr ain f.return_type (addr (getf !@f_c return_type));
-    setf !@f_c nr_arguments (Signed.Int32.of_int f.nr_arguments);
-    realloc_vars f_c (List.length f.variables);
-    write_vars (getf !@f_c variables) f.variables
+    Type.write_ptr ain src.return_type (addr (getf !@dst return_type));
+    setf !@dst nr_arguments (Signed.Int32.of_int src.nr_arguments);
+    realloc_vars dst (List.length src.variables);
+    write_vars (getf !@dst variables) src.variables
+
+  (** Commit any changes to a functype object to an ain file. *)
+  let write ain f =
+    write_ptr ain f (c_of_int_checked ain f.index)
+  let write_delegate ain f =
+    write_ptr ain f (delegate_c_of_int_checked ain f.index)
 
   let logical_parameters f =
     let not_void (v:Variable.t) =
@@ -1015,12 +1026,14 @@ let get_library' = foreign "ain_get_library" (ain_ptr @-> string @-> returning i
 let get_library_function' =
   foreign "ain_get_library_function" (ain_ptr @-> int @-> string @-> returning int)
 let get_functype' = foreign "ain_get_functype" (ain_ptr @-> string @-> returning int)
+let get_delegate' = foreign "ain_get_delegate" (ain_ptr @-> string @-> returning int)
 let get_string_no' = foreign "ain_get_string_no" (ain_ptr @-> string @-> returning int)
 let get_string = foreign "_ain_string" (ain_ptr @-> int @-> returning string_opt)
 let get_message = foreign "_ain_message" (ain_ptr @-> int @-> returning string_opt)
 let add_function' = foreign "ain_add_function" (ain_ptr @-> string @-> returning int)
 let dup_function = foreign "ain_dup_function" (ain_ptr @-> int @-> returning int)
 let add_functype' = foreign "ain_add_functype" (ain_ptr @-> string @-> returning int)
+let add_delegate' = foreign "ain_add_delegate" (ain_ptr @-> string @-> returning int)
 let add_global = foreign "ain_add_global" (ain_ptr @-> string @-> returning int)
 let add_initval = foreign "ain_add_initval" (ain_ptr @-> int @-> returning int)
 let add_struct' = foreign "ain_add_struct" (ain_ptr @-> string @-> returning int)
@@ -1038,6 +1051,7 @@ let get_library_function_index p i name = get_library_function' p i name |> retu
 let get_string_no p s = get_string_no' p s |> return_option
 
 let get_functype_index p name = get_functype' p name |> return_option
+let get_delegate_index p name = get_delegate' p name |> return_option
 let get_struct_index p name = get_struct' p name |> return_option
 
 let get_c_global_by_index p i =
@@ -1111,30 +1125,50 @@ let get_functype p name =
   | -1 -> None
   | i -> Some (FunctionType.of_int p i)
 
+let get_delegate p name =
+  match get_delegate' p name with
+  | -1 -> None
+  | i -> Some (FunctionType.delegate_of_int p i)
+
+let function_of_functype (ft:FunctionType.t) no =
+  let (r:Function.t) =
+    { index = no;
+      address = 0;
+      name = ft.name;
+      nr_args = ft.nr_arguments;
+      vars = ft.variables;
+      return_type = ft.return_type;
+      is_label = false;
+      is_lambda = 0;
+      crc = 0;
+      struct_type = -1;
+      enum_type = -1
+    }
+  in
+  r
+
 let function_of_functype_index ain no =
-    let ft = FunctionType.of_int ain no in
-    let (r:Function.t) =
-      { index = no;
-        address = 0;
-        name = ft.name;
-        nr_args = ft.nr_arguments;
-        vars = ft.variables;
-        return_type = ft.return_type;
-        is_label = false;
-        is_lambda = 0;
-        crc = 0;
-        struct_type = -1;
-        enum_type = -1
-      }
-    in
-    r
+  let ft = FunctionType.of_int ain no in
+  function_of_functype ft no
+
+let function_of_delegate_index ain no =
+  let ft = FunctionType.delegate_of_int ain no in
+  function_of_functype ft no
 
 let add_functype p name =
   FunctionType.of_int p (add_functype' p name)
 
+let add_delegate p name =
+  FunctionType.delegate_of_int p (add_delegate' p name)
+
 let write_new_functype p (ft:FunctionType.t) =
   let no = add_functype' p ft.name in
   FunctionType.write p {ft with index=no};
+  no
+
+let write_new_delegate p (ft:FunctionType.t) =
+  let no = add_delegate' p ft.name in
+  FunctionType.write_delegate p {ft with index=no};
   no
 
 let function_of_hll_function_index ain lib_no fun_no =
@@ -1191,6 +1225,7 @@ let nr_globals = foreign "_ain_nr_globals" (ain_ptr @-> returning int)
 let nr_functions = foreign "_ain_nr_functions" (ain_ptr @-> returning int)
 let nr_structs = foreign "_ain_nr_structures" (ain_ptr @-> returning int)
 let nr_functypes = foreign "_ain_nr_functypes" (ain_ptr @-> returning int)
+let nr_delegates = foreign "_ain_nr_delegates" (ain_ptr @-> returning int)
 let nr_libraries = foreign "_ain_nr_libraries" (ain_ptr @-> returning int)
 
 let global_iter' from iter p =
@@ -1304,6 +1339,34 @@ let functype_for_all ?(from = 0) ~f p =
     end
   in
   functype_iter' from iter p
+
+let delegate_iter' from iter p =
+  let delegates = (foreign "_ain_delegates" (ain_ptr @-> returning (ptr FunctionType.t_c))) p in
+  iter (delegates +@ from) ((nr_delegates p) - from) from
+
+let delegate_iter ?(from = 0) ~f p =
+  let rec iter ft n i =
+    if n <= 0 then
+      ()
+    else begin
+      f (FunctionType.of_ptr ft i);
+      iter (ft +@ 1) (n - 1) (i + 1)
+    end
+  in
+  delegate_iter' from iter p
+
+let delegate_for_all ?(from = 0) ~f p =
+  let rec iter ft n i =
+    if n <= 0 then
+      true
+    else begin
+      if f (FunctionType.of_ptr ft i) then
+        iter (ft +@ 1) (n - 1) (i + 1)
+      else
+        false
+    end
+  in
+  delegate_iter' from iter p
 
 module DASM = struct
   type t = unit ptr

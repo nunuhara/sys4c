@@ -22,14 +22,16 @@ type reloc_t = {
   globals : (int, int) Hashtbl.t;
   functions : (int, int) Hashtbl.t;
   structs : (int, int) Hashtbl.t;
-  functypes : (int, int) Hashtbl.t
+  functypes : (int, int) Hashtbl.t;
+  delegates : (int, int) Hashtbl.t
 }
 
 let make_reloc_tables () =
   { globals = Hashtbl.create (module Int);
     functions = Hashtbl.create (module Int);
     structs = Hashtbl.create (module Int);
-    functypes = Hashtbl.create (module Int)
+    functypes = Hashtbl.create (module Int);
+    delegates = Hashtbl.create (module Int)
   }
 
 let check_hll_defs a b =
@@ -96,8 +98,11 @@ let rec link_type reloc ain (v:Type.t) =
       | Some reloc_no -> {v with data=(FuncType reloc_no)}
       | None -> linker_bug (Printf.sprintf "functype not found: %d" no)
       end
-  | Delegate _ ->
-      failwith "delegate linking not implemented"
+  | Delegate no ->
+      begin match Hashtbl.find reloc.delegates no with
+      | Some reloc_no -> {v with data=(Delegate reloc_no)}
+      | None -> linker_bug (Printf.sprintf "delegate not found: %d" no)
+      end
   | Array t ->
       {v with data=(Array (link_type reloc ain t))}
   | Wrap t ->
@@ -165,6 +170,25 @@ let link_functype_types reloc ain (f:FunctionType.t) =
   let reloc_vars = List.map f.variables ~f:(link_variable_type reloc ain) in
   FunctionType.write ain {f with variables=reloc_vars}
 
+let link_delegate reloc ain (f:FunctionType.t) =
+  let no =
+    match Alice.Ain.get_delegate ain f.name with
+    | Some existing_f ->
+        (* ensure definitions match *)
+        if not (FunctionType.equal f existing_f) then
+          link_error (Printf.sprintf "Delegate declaration mismatch: %s" f.name);
+        existing_f.index
+    | None ->
+        (* add delegate to ain file *)
+        write_new_delegate ain f
+  in
+  (* add relocation to table *)
+  Hashtbl.add_exn reloc ~key:f.index ~data:no
+
+let link_delegate_types reloc ain (f:FunctionType.t) =
+  let reloc_vars = List.map f.variables ~f:(link_variable_type reloc ain) in
+  FunctionType.write_delegate ain {f with variables=reloc_vars}
+
 let link_code reloc a b =
   let code_offset = code_size a in
   let buffer = Alice.CBuffer.create 2048 in
@@ -198,7 +222,11 @@ let link_code reloc a b =
           | None -> link_error (Printf.sprintf "Invalid struct index: %d" v)
           end
       | File -> failwith "files not implemented"
-      | Delegate -> failwith "delegates not implemented"
+      | Delegate ->
+          begin match Hashtbl.find reloc.delegates v with
+          | Some dno -> dno
+          | None -> link_error (Printf.sprintf "Invalid delegate index: %d" v)
+          end
       | Switch -> failwith "switch not implemented"
       | Int | Float | Local | Syscall | Library | LibraryFunction -> v
     in
@@ -227,12 +255,15 @@ let link a b decl_only =
   (* let function_start = nr_functions a in *)
   let struct_start = nr_structs a in
   let functype_start = nr_functypes a in
+  let delegate_start = nr_delegates a in
   (* transfer type objects from b to a *)
   Alice.Ain.struct_iter b ~f:(link_struct reloc.structs a);
   functype_iter b ~f:(link_functype reloc.functypes a);
+  delegate_iter b ~f:(link_delegate reloc.delegates a);
   (* 2nd pass over type objects to update nested types *)
   struct_iter a ~f:(link_struct_types reloc a) ~from:struct_start;
   functype_iter b ~f:(link_functype_types reloc a) ~from:functype_start;
+  delegate_iter b ~f:(link_delegate_types reloc a) ~from:delegate_start;
   (* transfer remaining objects from b to a *)
   global_iter b ~f:(link_global reloc.globals a);
   function_iter b ~f:(link_function reloc.functions a);
@@ -270,7 +301,13 @@ let declarations_match master ain =
     | Some master_ft -> FunctionType.equal master_ft ft
     | None -> false
   in
+  let check_delegate (ft:FunctionType.t) =
+    match get_delegate master ft.name with
+    | Some master_ft -> FunctionType.equal master_ft ft
+    | None -> false
+  in
   global_for_all ain ~f:check_global
   && function_for_all ain ~f:check_function ~from:1
   && struct_for_all ain ~f:check_struct
   && functype_for_all ain ~f:check_functype
+  && delegate_for_all ain ~f:check_delegate

@@ -798,6 +798,8 @@ class jaf_compiler ain = object (self)
         List.iter2_exn args (Alice.Ain.FunctionType.logical_parameters f) ~f:compile_arg;
         self#write_instruction1 PUSH no;
         self#write_instruction0 CALLFUNC2
+    | Call (_, _, Some DelegateCall _) ->
+        failwith "delegates not implemented"
     | Call (_, _, _) ->
         compiler_bug "invalid call expression" (Some(ASTExpression expr))
     | New (_, _, _) ->
@@ -1163,7 +1165,7 @@ class jaf_compiler ain = object (self)
               | None -> ()
               end
           end
-      | FuncTypeDef _ -> ()
+      | FuncTypeDef _ | DelegateDef _ -> ()
       | StructDef d ->
           let compile_struct_decl (d : struct_declaration) =
             match d with

@@ -372,6 +372,11 @@ class type_analyze_visitor ctx = object (self)
             check_call f args;
             expr.node <- Call (e, args, Some (FuncTypeCall no));
             expr.valuetype <- Some f.return_type
+        | Delegate no ->
+            let f = Alice.Ain.function_of_delegate_index ctx.ain no in
+            check_call f args;
+            expr.node <- Call (e, args, Some (DelegateCall no));
+            expr.valuetype <- Some f.return_type
         | _ ->
             data_type_error (Alice.Ain.Type.FuncType (-1)) (Some e) (ASTExpression expr)
         end

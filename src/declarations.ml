@@ -62,6 +62,10 @@ class type_declare_visitor ctx = object (self)
         if Option.is_some (Alice.Ain.get_functype ctx.ain f.name) then
           compile_error "duplicate functype definition" (ASTDeclaration decl);
         ignore (Alice.Ain.add_functype ctx.ain f.name : Alice.Ain.FunctionType.t)
+    | DelegateDef (f) ->
+        if Option.is_some (Alice.Ain.get_delegate ctx.ain f.name) then
+          compile_error "duplicate delegate definition" (ASTDeclaration decl);
+        ignore (Alice.Ain.add_delegate ctx.ain f.name : Alice.Ain.FunctionType.t)
     | StructDef (s) ->
         if Option.is_some (Alice.Ain.get_struct ctx.ain s.name) then
           compile_error "duplicate struct definition" (ASTDeclaration decl);
@@ -112,7 +116,17 @@ class type_resolve_visitor ctx decl_only = object (self)
                     (* import functype declaration *)
                     FuncType (name, Alice.Ain.write_new_functype ctx.ain ft)
                 | None ->
-                    compile_error ("Undefined type: " ^ name) node
+                    begin match Alice.Ain.get_delegate_index ctx.ain name with
+                    | Some i -> Delegate (name, i)
+                    | None ->
+                        begin match Alice.Ain.get_delegate ctx.import_ain name with
+                        | Some ft ->
+                            (* import delegate declaration *)
+                            Delegate (name, Alice.Ain.write_new_delegate ctx.ain ft)
+                        | None ->
+                            compile_error ("Undefined type: " ^ name) node
+                        end
+                    end
                 end
             end
         end
@@ -153,7 +167,7 @@ class type_resolve_visitor ctx decl_only = object (self)
     | Function (f) ->
         resolve_function f;
         f.class_index <- function_class f
-    | FuncTypeDef (f) ->
+    | FuncTypeDef (f) | DelegateDef (f) ->
         resolve_function f
     | Global (g) ->
         self#resolve_typespec g.type_spec (ASTDeclaration decl)
@@ -199,6 +213,11 @@ class type_define_visitor ctx = object
         begin match Alice.Ain.get_functype ctx.ain f.name with
         | Some (obj) -> obj |> jaf_to_ain_functype f |> Alice.Ain.FunctionType.write ctx.ain
         | None -> compiler_bug "undefined functype" (Some(ASTDeclaration decl))
+        end
+    | DelegateDef (f) ->
+        begin match Alice.Ain.get_delegate ctx.ain f.name with
+        | Some (obj) -> obj |> jaf_to_ain_functype f |> Alice.Ain.FunctionType.write_delegate ctx.ain
+        | None -> compiler_bug "undefined delegate" (Some(ASTDeclaration decl))
         end
     | StructDef (s) ->
         begin match Alice.Ain.get_struct ctx.ain s.name with

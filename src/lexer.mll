@@ -15,13 +15,14 @@
  *)
 
 {
+open Core
 open Parser
 
 (* Unquote & splice string literal *)
 let process_string s =
   let rec loop s i in_text result =
     if i >= String.length s then
-      String.of_seq (List.to_seq (List.rev result))
+      String.of_char_list (List.rev result)
     else
       match String.get s i with
       | '"' ->
@@ -47,7 +48,7 @@ let process_string s =
 let process_message s =
   let rec loop s i in_text result =
     if i >= String.length s then
-      String.of_seq (List.to_seq (List.rev result))
+      String.of_char_list (List.rev result)
     else
       match String.get s i with
       | '\'' ->
@@ -68,6 +69,43 @@ let process_message s =
             loop s (i+1) in_text result
   in
   loop s 0 false []
+
+let keyword_table = Hashtbl.create (module String)
+let () =
+  List.iter ~f:(fun (kwd, tok) -> Hashtbl.add_exn keyword_table ~key:kwd ~data:tok)
+            [ "void",         VOID;
+              "char",         CHAR;
+              "int",          INT;
+              "float",        FLOAT;
+              "bool",         BOOL;
+              "string",       STRING;
+              "hll_struct",   HLL_STRUCT;
+              "hll_param",    HLL_PARAM;
+              "hll_func",     HLL_FUNC;
+              "hll_delegate", HLL_DELEGATE;
+              "true",         TRUE;
+              "false",        FALSE;
+              "if",           IF;
+              "else",         ELSE;
+              "while",        WHILE;
+              "do",           DO;
+              "for",          FOR;
+              "goto",         GOTO;
+              "continue",     CONTINUE;
+              "break",        BREAK;
+              "return",       RETURN;
+              "this",         THIS;
+              "new",          NEW;
+              "const",        CONST;
+              "ref",          REF;
+              "override",     OVERRIDE;
+              "array",        ARRAY;
+              "wrap",         WRAP;
+              "functype",     FUNCTYPE;
+              "delegate",     DELEGATE;
+              "struct",       STRUCT;
+              "enum",         ENUM;
+              "imain_system", IMAINSYSTEM ]
 }
 
 let u  = ['\x80'-'\xbf']
@@ -155,38 +193,10 @@ rule token = parse
   | ':'                     { COLON }
   | ';'                     { SEMICOLON }
   | '~'                     { TILDE }
-  | "void"                  { VOID }
-  | "char"                  { CHAR }
-  | "int"                   { INT }
-  | "float"                 { FLOAT }
-  | "bool"                  { BOOL }
-  | "string"                { STRING }
-  | "hll_struct"            { HLL_STRUCT }
-  | "hll_param"             { HLL_PARAM }
-  | "hll_func"              { HLL_FUNC }
-  | "delegate"              { DELEGATE }
-  | "true"                  { TRUE }
-  | "false"                 { FALSE }
-  | "if"                    { IF }
-  | "else"                  { ELSE }
-  | "while"                 { WHILE }
-  | "do"                    { DO }
-  | "for"                   { FOR }
-  | "goto"                  { GOTO }
-  | "continue"              { CONTINUE }
-  | "break"                 { BREAK }
-  | "return"                { RETURN }
-  | "this"                  { THIS }
-  | "new"                   { NEW }
-  | "const"                 { CONST }
-  | "ref"                   { REF }
-  | "override"              { OVERRIDE }
-  | "array"                 { ARRAY }
-  | "wrap"                  { WRAP }
-  | "functype"              { FUNCTYPE }
-  | "struct"                { STRUCT }
-  | "enum"                  { ENUM }
-  | "imain_system"          { IMAINSYSTEM }
-  | l as c                  { IDENTIFIER(c) } (* TODO: check_type *)
-  | (l a* at) as s          { IDENTIFIER(s) } (* TODO: check_type *)
+  | l as c                  { IDENTIFIER(c) }
+  | (l a* at) as s          {
+                              match Hashtbl.find keyword_table s with
+                              | Some kw -> kw
+                              | None -> IDENTIFIER(s)
+                            }
   | eof                     { EOF }

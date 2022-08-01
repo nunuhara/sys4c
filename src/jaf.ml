@@ -84,7 +84,7 @@ and data_type =
   | Wrap     of type_specifier
   | HLLParam
   | HLLFunc
-  | Delegate of int
+  | Delegate of string * int
   | FuncType of string * int
   | IMainSystem
 
@@ -110,6 +110,7 @@ type call_type =
   | SystemCall of Bytecode.syscall
   | BuiltinCall of Bytecode.builtin
   | FuncTypeCall of int
+  | DelegateCall of int
 
 type expression = {
   mutable valuetype : Alice.Ain.Type.t option;
@@ -192,6 +193,7 @@ type declaration =
   | Function of fundecl
   | Global of variable
   | FuncTypeDef of fundecl
+  | DelegateDef of fundecl
   | StructDef of structdecl
   | Enum of enumdecl
 
@@ -424,6 +426,7 @@ class ivisitor ctx = object (self)
     | Function (f) ->
         self#visit_fundecl f;
     | FuncTypeDef (_) -> ()
+    | DelegateDef (_) -> ()
     | StructDef (s) ->
         let visit_structdecl = function
           | MemberDecl (d) -> visit_vardecl d
@@ -501,13 +504,11 @@ let rec data_type_to_string = function
   | Bool -> "bool"
   | Float -> "float"
   | String -> "string"
-  | Struct (s, _) -> s
+  | Struct (s, _) | FuncType (s, _) | Delegate (s, _) -> s
   | Array t -> "array<" ^ (type_spec_to_string t) ^ ">" (* TODO: rank *)
   | Wrap t -> "wrap<" ^ (type_spec_to_string t) ^ ">"
   | HLLParam -> "hll_param"
   | HLLFunc -> "hll_func"
-  | Delegate _ -> "delegate"
-  | FuncType (s, _) -> s
   | IMainSystem -> "IMainSystem"
 and type_spec_to_string ts =
   match ts.qualifier with
@@ -651,6 +652,10 @@ let decl_to_string d =
       let return = type_spec_to_string d.return in
       let params = params_to_string d.params in
       sprintf "functype %s %s%s;" return d.name params
+  | DelegateDef (d) ->
+      let return = type_spec_to_string d.return in
+      let params = params_to_string d.params in
+      sprintf "delegate %s %s%s;" return d.name params
   | StructDef (d) ->
       let sdecl_to_string = function
         | MemberDecl (d) ->
@@ -700,12 +705,12 @@ let rec jaf_to_ain_data_type data =
   | Bool -> Alice.Ain.Type.Bool
   | Float -> Alice.Ain.Type.Float
   | String -> Alice.Ain.Type.String
-  | Struct (_, i) -> (Alice.Ain.Type.Struct i)
+  | Struct (_, i) -> Alice.Ain.Type.Struct i
   | Array t -> Alice.Ain.Type.Array (jaf_to_ain_type t)
   | Wrap t -> Alice.Ain.Type.Wrap (jaf_to_ain_type t)
   | HLLParam -> Alice.Ain.Type.HLLParam
   | HLLFunc -> Alice.Ain.Type.HLLFunc
-  | Delegate i -> (Alice.Ain.Type.Delegate i)
+  | Delegate (_, i) -> Alice.Ain.Type.Delegate i
   | FuncType (_, i) -> Alice.Ain.Type.FuncType i
   | IMainSystem -> Alice.Ain.Type.IMainSystem
 and jaf_to_ain_type spec =
