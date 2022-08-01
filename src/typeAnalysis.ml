@@ -41,6 +41,7 @@ let rec type_equal (expected:Alice.Ain.Type.data) (actual:Alice.Ain.Type.data) =
   | (HLLFunc, HLLFunc) -> true
   | (IFaceWrap, IFaceWrap) -> true
   | (Function _, Function _) -> true
+  | (Method _, Method _) -> true
   | (Int, _)
   | (Bool, _)
   | (LongInt, _)
@@ -60,7 +61,8 @@ let rec type_equal (expected:Alice.Ain.Type.data) (actual:Alice.Ain.Type.data) =
   | (Enum _, _)
   | (HLLFunc, _)
   | (IFaceWrap, _)
-  | (Function _, _) -> false
+  | (Function _, _)
+  | (Method _, _) -> false
 
 let type_castable (dst:data_type) (src:Alice.Ain.Type.data) =
   match (dst, src) with
@@ -105,10 +107,23 @@ class type_analyze_visitor ctx = object (self)
     | New (_, _, _) -> ()
     | _ -> not_an_lvalue_error e parent
 
+  method check_delegate_compatible parent dg_i expr =
+    match (Option.value_exn expr.valuetype) with
+    | { data=Alice.Ain.Type.Method (f_i); is_ref=true } ->
+        let dg = Alice.Ain.FunctionType.delegate_of_int ctx.ain dg_i in
+        let f = Alice.Ain.Function.of_int ctx.ain f_i in
+        if not (Alice.Ain.FunctionType.function_compatible dg f) then
+          data_type_error (Alice.Ain.Type.Delegate (dg_i)) (Some expr) parent
+    | { data=Alice.Ain.Type.Delegate no; _ } ->
+        if not (phys_equal dg_i no) then
+          data_type_error (Alice.Ain.Type.Delegate (dg_i)) (Some expr) parent
+    | _ ->
+        ref_type_error (Alice.Ain.Type.Method (-1)) (Some expr) parent
+
   method check_assign parent t rhs =
     match t with
     (*
-     * Assigning to a functype variable is special.
+     * Assigning to a functype or delegate variable is special.
      * The RHS should be an expression like &foo, which has type
      * 'ref function'. This is then converted into the declared
      * functype of the variable (if the prototypes match).
@@ -123,6 +138,8 @@ class type_analyze_visitor ctx = object (self)
         | _ ->
             ref_type_error (Alice.Ain.Type.Function (-1)) (Some rhs) parent
         end
+    | Alice.Ain.Type.Delegate (dg_i) ->
+        self#check_delegate_compatible parent dg_i rhs
     | _ ->
         type_check parent t rhs
 
@@ -191,6 +208,8 @@ class type_analyze_visitor ctx = object (self)
             begin match (Option.value_exn e.valuetype).data with
             | Function i ->
                 expr.valuetype <- Some (Alice.Ain.Type.make ~is_ref:true (Function i))
+            | Method i ->
+                expr.valuetype <- Some (Alice.Ain.Type.make ~is_ref:true (Method i))
             | _ ->
                 data_type_error (Function (-1)) (Some e) (ASTExpression expr)
             end
@@ -246,20 +265,29 @@ class type_analyze_visitor ctx = object (self)
         end;
     | Assign (op, lhs, rhs) ->
         self#check_lvalue lhs (ASTExpression expr);
-        begin match op with
-        | EqAssign ->
-            self#check_assign (ASTExpression expr) (Option.value_exn lhs.valuetype).data rhs
-        | PlusAssign | MinusAssign | TimesAssign | DivideAssign ->
+        let lhs_type = (Option.value_exn lhs.valuetype).data in
+        let rhs_type = (Option.value_exn rhs.valuetype).data in
+        begin match (lhs_type, op) with
+        | (_, EqAssign) ->
+            self#check_assign (ASTExpression expr) lhs_type rhs
+        | (Delegate dg_i, (PlusAssign | MinusAssign)) ->
+            self#check_delegate_compatible (ASTExpression expr) dg_i rhs
+        | (_, (PlusAssign | MinusAssign | TimesAssign | DivideAssign)) ->
             check_numeric lhs;
             check_numeric rhs;
             (* TODO: allow coercion *)
             check_expr lhs rhs
-        | ModuloAssign | OrAssign | XorAssign | AndAssign
-        | LShiftAssign | RShiftAssign ->
+        | (_, (ModuloAssign | OrAssign | XorAssign | AndAssign | LShiftAssign | RShiftAssign)) ->
             check Int lhs;
             check Int rhs
         end;
-        expr.valuetype <- lhs.valuetype
+        (* XXX: Nothing is left on stack after assigning method to delegate *)
+        begin match lhs_type, rhs_type with
+        | Delegate _, Method _ ->
+            expr.valuetype <- Some (Alice.Ain.Type.make Void)
+        | _ ->
+            expr.valuetype <- lhs.valuetype
+        end
     | Seq (_, e) ->
         expr.valuetype <- e.valuetype
     | Ternary (test, con, alt) ->
@@ -301,7 +329,7 @@ class type_analyze_visitor ctx = object (self)
             undefined_variable_error (lib_name ^ "." ^ fun_name) (ASTExpression(expr))
         end
     (* built-in methods *)
-    | Member ({valuetype=Some{data=(Int|Float|String) as t; _}; _} as e, name, _) ->
+    | Member ({valuetype=Some{data=(Int|Float|String|Delegate _) as t; _}; _} as e, name, _) ->
         begin match Bytecode.builtin_of_string t name with
         | Some builtin ->
             expr.node <- Member (e, name, Some (BuiltinMethod builtin));
@@ -325,7 +353,7 @@ class type_analyze_visitor ctx = object (self)
             begin match Alice.Ain.get_function ctx.ain fun_name with
             | Some f ->
                 expr.node <- Member (obj, member_name, Some (ClassMethod (struc.index, f.index)));
-                expr.valuetype <- Some (Alice.Ain.Type.make (Function f.index))
+                expr.valuetype <- Some (Alice.Ain.Type.make (Method f.index))
             | None ->
                 (* TODO: separate error type for this? *)
                 undefined_variable_error (struc.name ^ "." ^ member_name) (ASTExpression expr)
@@ -361,10 +389,11 @@ class type_analyze_visitor ctx = object (self)
         if Alice.Ain.version_gte ctx.ain 11 0 then
           compile_error "ain v11+ built-ins not implemented" (ASTExpression expr);
         let f = Bytecode.function_of_builtin builtin in
+        (* TODO: properly check type-generic arguments based on object type *)
         check_call f args;
         expr.node <- Call (e, args, Some (BuiltinCall builtin));
         expr.valuetype <- Some f.return_type
-    (* functype call *)
+    (* functype/delegate call *)
     | Call (e, args, _) ->
         begin match (Option.value_exn e.valuetype).data with
         | FuncType no ->

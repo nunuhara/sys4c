@@ -26,7 +26,7 @@ class sanity_check_visitor ctx = object
     | Some t ->
         if t.is_ref then
           begin match t.data with
-          | Function _ -> ()
+          | Function _ | Method _ -> ()
           | _ -> compiler_bug "expression has ref type" (Some(ASTExpression expr))
           end
     | None ->

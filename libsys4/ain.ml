@@ -49,6 +49,7 @@ module Type = struct
     | IFaceWrap
     (* internal compiler use *)
     | Function of int
+    | Method of int
   and t = {
     data : data;
     is_ref : bool;
@@ -118,6 +119,11 @@ module Type = struct
           | Function i_b -> i_a = i_b
           | _ -> false
           end
+      | Method i_a ->
+          begin match b with
+          | Function i_b -> i_a = i_b
+          | _ -> false
+          end
     in
     (Bool.equal a.is_ref b.is_ref) && (data_type_equal a.data b.data)
 
@@ -143,6 +149,7 @@ module Type = struct
     | HLLFunc -> "hll_func"
     | IFaceWrap -> "interface_wrap"
     | Function (no) -> if no >= 0 then sprintf "function<%d>" no else "function"
+    | Method (no) -> if no >= 0 then sprintf "method<%d>" no else "method"
   and to_string o =
     let prefix = if o.is_ref then "ref " else "" in
     prefix ^ (data_to_string o.data)
@@ -189,6 +196,7 @@ module Type = struct
             | HLLFunc -> failwith "tried to create ref array<hll_func>"
             | IFaceWrap -> failwith "tried to create ref array<iface_wrap<...>>"
             | Function (_) -> failwith "tried to create ref array<function>"
+            | Method (_) -> failwith "tried to create ref array<method>"
             end
       | Wrap (_) -> failwith "tried to create ref wrap<...>"
       | Option (_) -> failwith "tried to create ref option<...>"
@@ -199,6 +207,7 @@ module Type = struct
       | HLLFunc -> failwith "tried to create ref hll_func"
       | IFaceWrap -> failwith "tried to create ref iface_wrap<...>"
       | Function (_) -> failwith "tried to create ref function"
+      | Method (_) -> failwith "tried to create ref method"
     else
       match o.data with
         | Void -> 0
@@ -238,6 +247,7 @@ module Type = struct
               | HLLFunc -> failwith "tried to create array<hll_func>"
               | IFaceWrap -> failwith "tried to create array<iface_wrap<...>>"
               | Function (_) -> failwith "tried to create array<function>"
+              | Method (_) -> failwith "tried to create array<method>"
               end
         | Wrap (_) -> 82
         | Option (_) -> 86
@@ -248,6 +258,7 @@ module Type = struct
         | HLLFunc -> 95
         | IFaceWrap -> 100
         | Function (_) -> failwith "tried to create function"
+        | Method (_) -> failwith "tried to create method"
   and to_c_struc _ o =
     match o.data with
     | Struct (no) | FuncType (no) | Delegate (no) | Enum2 (no) | Enum (no) -> no

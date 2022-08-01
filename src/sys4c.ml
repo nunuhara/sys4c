@@ -85,7 +85,7 @@ let compile_sources sources imports major minor decl_only =
   (* compile sources *)
   let ctx = { ain; import_ain; const_vars=[] } in
   let compile_file f =
-    if Filename.check_suffix f ".jaf" then
+    if (Filename.check_suffix f ".jaf") || (String.equal f "-") then
       compile_jaf ctx f decl_only
     else if Filename.check_suffix f ".hll" then
       compile_hll ctx f

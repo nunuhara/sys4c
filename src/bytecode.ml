@@ -1318,6 +1318,12 @@ type builtin =
   | ArrayErase
   | ArrayInsert
   | ArraySort
+  | DelegateSet
+  | DelegateAdd
+  | DelegateNumof
+  | DelegateExist
+  | DelegateErase
+  | DelegateClear
 
 let int_builtin_of_string = function
   | "String" -> Some IntString
@@ -1354,12 +1360,22 @@ let array_builtin_of_string = function
   | "Sort" -> Some ArraySort
   | _ -> None
 
+let delegate_builtin_of_string = function
+  | "Set" -> Some DelegateSet
+  | "Add" -> Some DelegateAdd
+  | "Numof" -> Some DelegateNumof
+  | "Exist" -> Some DelegateExist
+  | "Erase" -> Some DelegateErase
+  | "Clear" -> Some DelegateClear
+  | _ -> None
+
 let builtin_of_string (t:Alice.Ain.Type.data) name =
   match t with
   | Int -> int_builtin_of_string name
   | Float -> float_builtin_of_string name
   | String -> string_builtin_of_string name
   | Array _ -> array_builtin_of_string name
+  | Delegate _ -> delegate_builtin_of_string name
   | _ -> None
 
 let function_of_builtin builtin =
@@ -1368,6 +1384,7 @@ let function_of_builtin builtin =
   let t_string = Alice.Ain.Type.make String in
   let t_ref_array = Alice.Ain.Type.make ~is_ref:true (Array t_void) in
   let t_func = Alice.Ain.Type.make ~is_ref:true (Function 0) in
+  let t_method = Alice.Ain.Type.make ~is_ref:true (Method 0) in
   let (default:Alice.Ain.Function.t) =
     { index       = -1;
       name        = "";
@@ -1427,6 +1444,12 @@ let function_of_builtin builtin =
   | ArrayErase       -> make_function t_int "Erase" [t_int]
   | ArrayInsert      -> make_function t_void "Insert" [t_int; t_void]
   | ArraySort        -> make_function t_void "Sort" [t_func]
+  | DelegateSet      -> make_function t_void "Set" [t_method]
+  | DelegateAdd      -> make_function t_void "Add" [t_method]
+  | DelegateNumof    -> make_function t_int "Numof" []
+  | DelegateExist    -> make_function t_int "Exist" [t_method]
+  | DelegateErase    -> make_function t_void "Erase" [t_method]
+  | DelegateClear    -> make_function t_void "Clear" []
 
 type argtype =
   | Int

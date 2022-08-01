@@ -250,9 +250,11 @@ class jaf_compiler ain = object (self)
           end
         else
           self#write_instruction1 SR_REF no
-    | Void | IMainSystem | Delegate _ | HLLParam | Wrap _ | Option _
-    | Unknown87 _ | IFace | Enum2 _ | Enum _ | HLLFunc | IFaceWrap
-    | Function _ ->
+    | Delegate _ ->
+        self#write_instruction0 REF;
+        self#write_instruction0 DG_COPY
+    | Void | IMainSystem | HLLParam | Wrap _ | Option _ | Unknown87 _ | IFace
+    | Enum2 _ | Enum _ | HLLFunc | IFaceWrap | Function _ | Method _ ->
         compiler_bug "dereference not supported for type" None
 
   method compile_local_ref i =
@@ -314,7 +316,7 @@ class jaf_compiler ain = object (self)
         | String ->
             if not (Alice.Ain.version_gte ain 14 0) then
               self#write_instruction0 REF
-        | Array _ | Struct _ ->
+        | Array _ | Struct _ | Delegate _ ->
             self#write_instruction0 REF
         | _ -> ()
     in
@@ -373,10 +375,11 @@ class jaf_compiler ain = object (self)
           self#write_instruction0 DELETE
         else
           self#write_instruction0 S_POP
+    | Delegate _ ->
+        self#write_instruction0 DG_POP
     | Struct _
     | IMainSystem
     | FuncType _
-    | Delegate _
     | HLLParam
     | Array _
     | Wrap _
@@ -387,12 +390,16 @@ class jaf_compiler ain = object (self)
     | Enum _
     | HLLFunc
     | IFaceWrap
-    | Function _ ->
+    | Function _
+    | Method _ ->
         compiler_bug "compile_pop: unsupported value type" None
 
   method compile_argument (expr:expression) (t:Alice.Ain.Type.t) =
-    if t.is_ref then
-      begin
+    match t with
+    | { data=Method _; _ } ->
+        (* XXX: for delegate builtins *)
+        self#compile_expression expr
+    | { data=_; is_ref=true } ->
         self#compile_lvalue expr;
         (* XXX: in 14+ there is a distinction between a string lvalue and a
                 reference argument (string lvalue is a page+index, reference
@@ -402,9 +409,11 @@ class jaf_compiler ain = object (self)
           | String -> self#write_instruction1 X_REF 1
           | _ -> ()
           end
-      end
-    else
-      self#compile_expression expr
+    | { data=Delegate _; _ } ->
+        self#compile_expression expr;
+        self#write_instruction0 DG_NEW_FROM_METHOD
+    | _ ->
+        self#compile_expression expr
 
   method compile_function_arguments args (f:Alice.Ain.Function.t) =
     let compile_arg arg (var:Alice.Ain.Variable.t) =
@@ -476,8 +485,12 @@ class jaf_compiler ain = object (self)
         self#compile_expression e;
         self#write_instruction0 COMPL
     | Unary (AddrOf, e) ->
-        begin match (Option.value_exn e.valuetype).data with
-        | Function no -> self#write_instruction1 PUSH no
+        begin match ((Option.value_exn e.valuetype).data, e.node) with
+        | (Function no, _) ->
+            self#write_instruction1 PUSH no
+        | (Method no, Member (e, _, Some (ClassMethod (_, _)))) ->
+            self#compile_lvalue e;
+            self#write_instruction1 PUSH no
         | _ -> compiler_bug "invalid type for & operator" (Some(ASTExpression expr))
         end
     | Unary (PreInc, e) ->
@@ -624,6 +637,17 @@ class jaf_compiler ain = object (self)
         | (Float, DivideAssign)      -> self#write_instruction0 F_DIVA
         | (String, EqAssign)         -> self#write_instruction0 S_ASSIGN
         | (String, PlusAssign)       -> self#write_instruction0 S_PLUSA
+        | (Delegate _, _) ->
+            (* XXX: DG_SET and DG_ADD seem to be misnamed... *)
+            begin match (op, (Option.value_exn rhs.valuetype).data) with
+            | (EqAssign,    Method _)   -> self#write_instruction0 DG_ADD
+            | (EqAssign,    Delegate _) -> self#write_instruction0 DG_ASSIGN
+            | (PlusAssign,  Method _)   -> self#write_instruction0 DG_SET
+            | (PlusAssign,  Delegate _) -> self#write_instruction0 DG_PLUSA
+            | (MinusAssign, Method _)   -> self#write_instruction0 DG_ERASE
+            | (MinusAssign, Delegate _) -> self#write_instruction0 DG_MINUSA
+            | (_, _) -> compiler_bug "invalid delegate assignment" (Some(ASTExpression expr))
+            end
         | (_, _) -> compiler_bug "invalid assignment" (Some(ASTExpression expr))
         end
     | Seq (a, b) ->
@@ -715,12 +739,13 @@ class jaf_compiler ain = object (self)
         let f = function_of_builtin builtin in
         begin match builtin with
         | IntString | FloatString | StringInt | StringLength | StringLengthByte
-        | StringEmpty | StringFind | StringGetPart | StringPushBack
-        | StringPopBack | StringErase ->
+        | StringEmpty | StringFind | StringGetPart ->
             self#compile_expression e
-        | ArrayAlloc | ArrayRealloc | ArrayFree | ArrayNumof | ArrayCopy
-        | ArrayFill | ArrayPushBack | ArrayPopBack | ArrayEmpty | ArrayErase
-        | ArrayInsert | ArraySort ->
+        | StringPushBack | StringPopBack | StringErase | DelegateSet | DelegateAdd
+        | DelegateNumof | DelegateExist | DelegateErase | DelegateClear ->
+            self#compile_lvalue e
+        | ArrayAlloc | ArrayRealloc | ArrayFree | ArrayNumof | ArrayCopy | ArrayFill
+        | ArrayPushBack | ArrayPopBack | ArrayEmpty | ArrayErase | ArrayInsert | ArraySort ->
             self#compile_variable_ref e
         end;
         self#compile_function_arguments args f;
@@ -779,6 +804,18 @@ class jaf_compiler ain = object (self)
             self#write_instruction0 A_INSERT
         | ArraySort ->
             self#write_instruction0 A_SORT
+        | DelegateSet ->
+            self#write_instruction0 DG_SET
+        | DelegateAdd ->
+            self#write_instruction0 DG_ADD
+        | DelegateNumof ->
+            self#write_instruction0 DG_NUMOF
+        | DelegateExist ->
+            self#write_instruction0 DG_EXIST
+        | DelegateErase ->
+            self#write_instruction0 DG_ERASE
+        | DelegateClear ->
+            self#write_instruction0 DG_CLEAR
         end
     (* functype call *)
     | Call (e, args, Some FuncTypeCall no) ->
@@ -798,8 +835,15 @@ class jaf_compiler ain = object (self)
         List.iter2_exn args (Alice.Ain.FunctionType.logical_parameters f) ~f:compile_arg;
         self#write_instruction1 PUSH no;
         self#write_instruction0 CALLFUNC2
-    | Call (_, _, Some DelegateCall _) ->
-        failwith "delegates not implemented"
+    | Call (e, args, Some DelegateCall no) ->
+        let f = Alice.Ain.function_of_delegate_index ain no in
+        self#compile_lvalue e;
+        self#compile_function_arguments args f;
+        self#write_instruction1 DG_CALLBEGIN no;
+        let loop_addr = current_address in
+        self#write_instruction2 DG_CALL no 0;
+        self#write_instruction1 JUMP loop_addr;
+        self#write_address_at (loop_addr + 6) current_address
     | Call (_, _, _) ->
         compiler_bug "invalid call expression" (Some(ASTExpression expr))
     | New (_, _, _) ->
@@ -1095,9 +1139,18 @@ class jaf_compiler ain = object (self)
                   else
                     self#write_instruction0 A_FREE
                 end
-          | Void | IMainSystem | Delegate _ | HLLParam | Wrap _ | Option _
-          | Unknown87 _ | IFace | Enum2 _ | Enum _ | HLLFunc | IFaceWrap
-          | Function _ ->
+          | Delegate _ ->
+              self#compile_local_ref v.index;
+              self#write_instruction0 REF;
+              begin match decl.initval with
+              | Some e ->
+                  self#compile_expression e;
+                  self#write_instruction0 DG_SET
+              | None ->
+                  self#write_instruction0 DG_CLEAR
+              end
+          | Void | IMainSystem | HLLParam | Wrap _ | Option _ | Unknown87 _ | IFace
+          | Enum2 _ | Enum _ | HLLFunc | IFaceWrap | Function _ | Method _ ->
               compile_error "Unimplemented variable type" (ASTVariable decl)
           end
 
@@ -1138,7 +1191,6 @@ class jaf_compiler ain = object (self)
   method compile_function (decl:fundecl) =
     let index = Option.value_exn decl.index in
     let func = Alice.Ain.get_function_by_index ain index in
-    start_address <- current_address;
     func.address <- current_address + 6;
     current_function <- Some func;
     self#write_instruction1 FUNC index;

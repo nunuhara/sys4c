@@ -86,6 +86,16 @@ cd $(dirname "$0")
 ./test-runner.sh ref-struct.jaf
 ./test-runner.sh local-ref-struct.jaf
 
+# delegates
+./test-runner.sh dg-set.jaf
+./test-runner.sh dg-add.jaf
+./test-runner.sh dg-plusa.jaf
+./test-runner.sh dg-minusa.jaf
+./test-runner.sh dg-numof.jaf
+./test-runner.sh dg-exist.jaf
+./test-runner.sh dg-erase.jaf
+./test-runner.sh dg-clear.jaf
+
 # control flow
 ./test-runner.sh if.jaf
 ./test-runner.sh if-else.jaf

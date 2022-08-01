@@ -1,0 +1,19 @@
+delegate int dg(int a);
+
+struct obj {
+	int m;
+};
+
+int obj@method(int a)
+{
+	this.m += 100;
+}
+
+int main()
+{
+	obj o;
+	dg d;
+	d += &o.method;
+	d.Clear();
+	return !(d.Numof() == 0);
+}

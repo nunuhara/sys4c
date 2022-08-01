@@ -1,0 +1,17 @@
+delegate int dg(int a);
+
+struct obj {
+	int m;
+};
+
+int obj@method(int a)
+{
+	this.m += 100;
+}
+
+int main()
+{
+	obj o;
+	dg d;
+	return d.Exist(&o.method);
+}

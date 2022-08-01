@@ -1,0 +1,27 @@
+delegate int dg(int a);
+
+struct obj {
+	int m;
+};
+
+int obj@method1(int a)
+{
+	this.m += 100;
+}
+
+int obj@method2(int a)
+{
+	this.m += a;
+}
+
+int main()
+{
+	obj o;
+	dg d;
+	int i = 0;
+	d += &o.method1;
+	i += d.Numof();
+	d += &o.method2;
+	i += d.Numof();
+	return !(i == 3);
+}

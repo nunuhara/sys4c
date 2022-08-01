@@ -1,0 +1,28 @@
+delegate int dg(int a);
+
+struct obj {
+	int m;
+};
+
+int obj@method1(int a)
+{
+	this.m += 100;
+}
+
+int obj@method2(int a)
+{
+	this.m += a;
+}
+
+int main()
+{
+	obj o;
+	dg d1;
+	dg d2;
+	d1 += &o.method1;
+	d1 += &o.method2;
+	d2 += &o.method1;
+	d1 -= d2;
+	d1(42);
+	return !(o.m == 42);
+}

@@ -1,0 +1,22 @@
+delegate int dg(int a);
+
+struct obj {
+	int m;
+};
+
+int obj@method(int a)
+{
+	this.m += 100;
+}
+
+int main()
+{
+	obj o;
+	dg d;
+	bool exist1;
+	bool exist2;
+	exist1 = d.Exist(&o.method);
+	d += &o.method;
+	exist2 = d.Exist(&o.method);
+	return !(!exist1 && exist2);
+}
