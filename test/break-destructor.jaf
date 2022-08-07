@@ -1,0 +1,19 @@
+int global;
+
+struct S {
+	int m;
+	~S() {
+		global = 42;
+	}
+};
+
+int main()
+{
+	global = 0;
+	while (true) {
+		S obj;
+		break;
+		// destructor normally called here
+	}
+	return !(global == 42);
+}

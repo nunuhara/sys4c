@@ -25,7 +25,7 @@ let expr ast =
   { valuetype=None; node=ast }
 
 let stmt ast =
-  { node=ast }
+  { node=ast; delete_vars=[] }
 
 let decl typespec ((name, dims), init) =
   { name=name; array_dim=dims; type_spec=typespec; initval=init; index=None }
@@ -67,7 +67,7 @@ let func typespec name params body =
 %token VOID CHAR INT FLOAT BOOL STRING HLL_STRUCT HLL_PARAM HLL_FUNC HLL_DELEGATE
 %token IMAINSYSTEM
 /* keywords */
-%token TRUE FALSE IF ELSE WHILE DO FOR THIS NEW TILDE
+%token TRUE FALSE IF ELSE WHILE DO FOR THIS NEW
 %token GOTO CONTINUE BREAK RETURN
 %token CONST REF OVERRIDE ARRAY WRAP FUNCTYPE DELEGATE STRUCT ENUM
 
@@ -432,7 +432,7 @@ struct_declaration
   | declaration_specifiers IDENTIFIER parameter_list block
     { [Method (func $1 $2 $3 $4)] }
   | IDENTIFIER LPAREN RPAREN block
-    { [Constructor (func {data=Void; qualifier=None} "<constructor>" [] $4)] }
-  | TILDE IDENTIFIER LPAREN RPAREN block
-    { [Destructor (func {data=Void; qualifier=None} "<destructor>" [] $5)] }
+    { [Constructor (func {data=Void; qualifier=None} $1 [] $4)] }
+  | BITNOT IDENTIFIER LPAREN RPAREN block
+    { [Destructor (func {data=Void; qualifier=None} $2 [] $5)] }
   ;

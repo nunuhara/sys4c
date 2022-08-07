@@ -82,24 +82,7 @@ class jaf_compiler ain = object (self)
              not be deleted here. *)
     begin match Stack.top scopes with
     | None -> ()
-    | Some _ ->
-        let delete_var (v:Alice.Ain.Variable.t) =
-          match v.value_type.data with
-          | Struct _ ->
-              self#compile_local_delete v.index
-          | Array t ->
-              if Alice.Ain.version_gte ain 11 0 then begin
-                let type_no = Alice.Ain.Type.to_c_data ain t in
-                self#compile_local_ref v.index;
-                self#write_instruction0 REF;
-                self#compile_CALLHLL "Array" "Free" type_no (ASTStatement {node=EmptyStatement})
-              end else begin
-                self#compile_local_ref v.index;
-                self#write_instruction0 A_FREE
-              end
-          | _ -> ()
-        in
-        List.iter (List.rev scope.vars) ~f:delete_var
+    | Some _ -> List.iter (List.rev scope.vars) ~f:self#compile_delete_var
     end
 
   (** Add a variable to the current scope. *)
@@ -130,8 +113,14 @@ class jaf_compiler ain = object (self)
   (** Retrieves the continue address for the current loop (i.e. the address
       that 'continue' statements should jump to). *)
   method get_continue_addr node =
+    let rec get_first_continue = function
+      | { loop_addr=Some addr; _}::_ -> addr
+      | _::rest -> get_first_continue rest
+      | [] -> compile_error "'continue' statement outside of loop" node
+    in
     match Stack.top loops with
     | Some { loop_addr=Some addr; _} -> addr
+    | Some { loop_addr=None; _} -> get_first_continue (Stack.to_list loops)
     | _ -> compile_error "'continue' statement outside of loop" node
 
   (** Push the location of a 32-bit integer that should be updated to the
@@ -221,6 +210,22 @@ class jaf_compiler ain = object (self)
         self#write_instruction1 CALLSYS (int_of_syscall UnlockPeek);
         self#write_instruction0 POP
       end
+
+  method compile_delete_var (v:Alice.Ain.Variable.t) =
+    match v.value_type.data with
+    | Struct _ ->
+        self#compile_local_delete v.index
+    | Array t ->
+        if Alice.Ain.version_gte ain 11 0 then begin
+          let type_no = Alice.Ain.Type.to_c_data ain t in
+          self#compile_local_ref v.index;
+          self#write_instruction0 REF;
+          self#compile_CALLHLL "Array" "Free" type_no (ASTStatement {node=EmptyStatement; delete_vars=[]})
+        end else begin
+          self#compile_local_ref v.index;
+          self#write_instruction0 A_FREE
+        end
+    | _ -> ()
 
   (** Emit the code to put the value of a variable onto the stack (including
       member variables and array elements). Assumes a page + page-index is
@@ -855,6 +860,8 @@ class jaf_compiler ain = object (self)
   (** Emit the code for a statement. Statements are stack-neutral, i.e. the
       state of the stack is unchanged after executing a statement. *)
   method compile_statement (stmt:statement) =
+    (* delete locals that will be out-of-scope after this statement *)
+    List.iter stmt.delete_vars ~f:(fun i -> self#compile_delete_var (self#get_local i));
     match stmt.node with
     | EmptyStatement ->
         ()

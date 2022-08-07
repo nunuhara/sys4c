@@ -138,7 +138,8 @@ type block_item =
   | Statement    of statement
   | Declarations of variable list
 and statement = {
-  mutable node : ast_statement
+  mutable node : ast_statement;
+  mutable delete_vars : int list
 }
 and ast_statement =
   | EmptyStatement
@@ -238,6 +239,12 @@ class ivisitor ctx = object (self)
 
     method push_var decl =
       variables <- decl :: variables
+
+    method var_list =
+      List.append variables (List.fold stack ~init:[] ~f:List.append)
+
+    method var_id_list =
+      List.map (self#var_list) ~f:(fun (v:variable) -> Option.value_exn v.index)
 
     method enter_function decl =
       self#push;
@@ -748,10 +755,18 @@ let jaf_to_ain_struct j_s (a_s:Alice.Ain.Struct.t) =
     | MemberDecl (v) -> Some (Alice.Ain.Variable.make_member v.name (jaf_to_ain_type v.type_spec))
     | _ -> None
   in
-  (* TODO: interfaces *)
-  (* TODO: constructor *)
-  (* TODO: destructor *)
+  begin match List.find j_s.decls ~f:(function Constructor _ -> true | _ -> false) with
+  | Some (Constructor ctor) ->
+      a_s.constructor <- Option.value_exn ctor.index
+  | _ -> ()
+  end;
+  begin match List.find j_s.decls ~f:(function Destructor _ -> true | _ -> false) with
+  | Some (Destructor dtor) ->
+      a_s.destructor <- Option.value_exn dtor.index
+  | _ -> ()
+  end;
   a_s.members <- List.filter_map j_s.decls ~f:filter_members;
+  (* TODO: interfaces *)
   (* TODO: vmethods *)
   a_s
 

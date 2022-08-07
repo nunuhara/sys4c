@@ -103,6 +103,12 @@ cd $(dirname "$0")
 ./test-runner.sh do-while.jaf
 ./test-runner.sh for.jaf
 ./test-runner.sh ternary.jaf
+./test-runner.sh goto.jaf
+./test-runner.sh break-nested.jaf
+./test-runner.sh continue-nested.jaf
+./test-runner.sh goto-destructor.jaf
+./test-runner.sh break-destructor.jaf
+./test-runner.sh continue-destructor.jaf
 
 # reference types
 ./test-runner.sh int-ref.jaf
@@ -124,7 +130,5 @@ cd $(dirname "$0")
 
 ./test-runner.sh const-local.jaf
 ./test-runner.sh const-global.jaf
-
-./test-runner.sh goto.jaf
 
 ./test-runner.sh unicode.jaf

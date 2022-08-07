@@ -1,0 +1,11 @@
+int main(void)
+{
+	int i = 42;
+	do {
+		{
+			continue;
+		}
+		i = 0;
+	} while (false);
+	return !(i == 42);
+}

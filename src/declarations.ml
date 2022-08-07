@@ -72,10 +72,14 @@ class type_declare_visitor ctx = object (self)
         let ain_s = Alice.Ain.add_struct ctx.ain s.name in
         let visit_decl = function
           | Constructor f ->
+              if not (String.equal f.name s.name) then
+                compile_error "constructor name doesn't match struct name" (ASTDeclaration (Function f));
               f.name <- s.name ^ "@0";
               f.class_index <- Some ain_s.index;
               self#declare_function f
           | Destructor f ->
+              if not (String.equal f.name s.name) then
+                compile_error "destructor name doesn't match struct name" (ASTDeclaration (Function f));
               f.name <- s.name ^ "@1";
               f.class_index <- Some ain_s.index;
               self#declare_function f
