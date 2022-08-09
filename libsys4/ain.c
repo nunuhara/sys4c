@@ -225,6 +225,31 @@ void _ain_set_hll_argument_name(struct ain_hll_argument *a, const char *name)
 }
 
 // libraries }}}
+// switches {{{
+
+int _ain_nr_switches(struct ain *ain)
+{
+	return ain->nr_switches;
+}
+
+struct ain_switch *_ain_switch(struct ain *ain, int no)
+{
+	if (no < 0 || no >= ain->nr_switches)
+		return NULL;
+	return &ain->switches[no];
+}
+
+void _ain_switch_realloc_cases(struct ain_switch *sw, int nr_cases)
+{
+	free(sw->cases);
+	sw->cases = xcalloc(nr_cases, sizeof(struct ain_switch_case));
+	sw->nr_cases = nr_cases;
+	for (int i = 0; i < nr_cases; i++) {
+		sw->cases[i].parent = sw;
+	}
+}
+
+// switches }}}
 // code {{{
 
 struct dasm {

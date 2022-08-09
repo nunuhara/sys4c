@@ -1,0 +1,16 @@
+int main(void)
+{
+	int i = 0;
+	switch (i+1) {
+	case 0:
+		i = 0;
+		break;
+	default:
+		while (true) {
+			break;
+		}
+		i = 42;
+		break;
+	}
+	return !(i == 42);
+}

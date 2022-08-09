@@ -90,6 +90,9 @@ let () =
               "while",        WHILE;
               "do",           DO;
               "for",          FOR;
+              "switch",       SWITCH;
+              "case",         CASE;
+              "default",      DEFAULT;
               "goto",         GOTO;
               "continue",     CONTINUE;
               "break",        BREAK;

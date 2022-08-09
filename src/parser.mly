@@ -67,7 +67,7 @@ let func typespec name params body =
 %token VOID CHAR INT FLOAT BOOL STRING HLL_STRUCT HLL_PARAM HLL_FUNC HLL_DELEGATE
 %token IMAINSYSTEM
 /* keywords */
-%token TRUE FALSE IF ELSE WHILE DO FOR THIS NEW
+%token TRUE FALSE IF ELSE WHILE DO FOR SWITCH CASE DEFAULT THIS NEW
 %token GOTO CONTINUE BREAK RETURN
 %token CONST REF OVERRIDE ARRAY WRAP FUNCTYPE DELEGATE STRUCT ENUM
 
@@ -282,6 +282,12 @@ statement
   | rassign_statement { stmt $1 }
   ;
 
+switch_statement
+  : CASE constant_expression COLON statement { stmt (Case ($2, $4)) }
+  | DEFAULT COLON statement { stmt (Default ($3)) }
+  | statement { $1 }
+  ;
+
 labeled_statement
   : IDENTIFIER COLON statement { Labeled ($1, $3) }
   (* case *)
@@ -312,7 +318,8 @@ selection_statement
     { If ($3, $5, stmt EmptyStatement) }
   | IF LPAREN expression RPAREN statement ELSE statement
     { If ($3, $5, $7) }
-  (* switch *)
+  | SWITCH LPAREN expression RPAREN LBRACE switch_statement+ RBRACE
+    { Switch ($3, $6) }
   ;
 
 iteration_statement

@@ -102,6 +102,8 @@ cd $(dirname "$0")
 ./test-runner.sh while.jaf
 ./test-runner.sh do-while.jaf
 ./test-runner.sh for.jaf
+./test-runner.sh switch.jaf
+./test-runner.sh switch-default.jaf
 ./test-runner.sh ternary.jaf
 ./test-runner.sh goto.jaf
 ./test-runner.sh break-nested.jaf

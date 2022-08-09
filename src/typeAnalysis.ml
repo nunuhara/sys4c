@@ -453,6 +453,13 @@ class type_analyze_visitor ctx = object (self)
     | Goto (_) -> ()
     | Continue -> ()
     | Break -> ()
+    | Switch (expr, _) ->
+        (* TODO: string switch *)
+        type_check (ASTStatement (stmt)) Int expr
+    | Case (expr, _) ->
+        (* TODO: string switch *)
+        type_check (ASTStatement (stmt)) Int expr
+    | Default (_) -> ()
     | Return (Some e) ->
         begin match environment#current_function with
         | None -> compiler_bug "return statement outside of function" (Some(ASTStatement stmt))

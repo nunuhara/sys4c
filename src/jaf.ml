@@ -153,6 +153,9 @@ and ast_statement =
   | Goto           of string
   | Continue
   | Break
+  | Switch         of expression      * statement list
+  | Case           of expression      * statement
+  | Default        of statement
   | Return         of expression option
   | MessageCall    of string          * string option * int option
   | RefAssign      of expression      * expression
@@ -401,6 +404,14 @@ class ivisitor ctx = object (self)
     | Goto (_) -> ()
     | Continue -> ()
     | Break -> ()
+    | Switch (e, stmts) ->
+        self#visit_expression e;
+        List.iter stmts ~f:self#visit_statement
+    | Case (e, stmt) ->
+        self#visit_expression e;
+        self#visit_statement stmt
+    | Default (stmt) ->
+        self#visit_statement stmt
     | Return (e) ->
         Option.iter e ~f:self#visit_expression
     | MessageCall (_, _, _) -> ()
@@ -606,6 +617,14 @@ let rec stmt_to_string (stmt : statement) =
       "continue;"
   | Break ->
       "break;"
+  | Switch (expr, body) ->
+      let s_expr = expr_to_string expr in
+      let s_body = body |> List.map ~f:stmt_to_string |> List.fold ~init:"" ~f:(^) in
+      sprintf "switch (%s) { %s }" s_expr s_body
+  | Case (expr, stmt) ->
+      sprintf "case %s: %s" (expr_to_string expr) (stmt_to_string stmt)
+  | Default (stmt) ->
+      sprintf "default: %s" (stmt_to_string stmt)
   | Return (None) ->
       "return;"
   | Return (Some e) ->

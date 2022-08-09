@@ -880,12 +880,86 @@ module Switch = struct
   let cases = field t_c "cases" (ptr t_case)
   let () = seal t_c
 
+  type switch_case_type =
+    | IntCase
+    | StringCase
+
   type t = {
-    index: int;
-    case_type : int;
-    default_address : int;
-    cases : (int * int) list
+    mutable index: int;
+    case_type : switch_case_type;
+    mutable default_address : int;
+    mutable cases : (int * int) list
   }
+
+  let create case_type = {
+    index = -1;
+    case_type;
+    default_address = -1;
+    cases = []
+  }
+
+  (* internal to Ain module *)
+  let of_ptr p i =
+    let case_of_ptr p =
+      (Signed.Int32.to_int (getf !@p case_value),
+       Signed.Int32.to_int (getf !@p case_address))
+    in
+    let rec cases_of_ptr p n result =
+      if n = 0 then
+        List.rev result
+      else
+        cases_of_ptr (p +@ 1) (n - 1) ((case_of_ptr p)::result)
+    in
+    let case_type_of_int = function
+      | 2 -> IntCase
+      | 4 -> StringCase
+      | _ -> failwith "invalid switch case type"
+    in
+    { index = i;
+      case_type = case_type_of_int (getf !@p case_type);
+      default_address = Signed.Int32.to_int (getf !@p default_address);
+      cases = cases_of_ptr (getf !@p cases) (Signed.Int32.to_int (getf !@p nr_cases)) []
+    }
+
+  (* internal to Ain module *)
+  let c_of_int = foreign "_ain_switch" (ain_ptr @-> int @-> returning (ptr_opt t_c))
+
+  (* internal to Ain module *)
+  let c_of_int_checked ain i =
+    match c_of_int ain i with
+    | None -> failwith "_ain_switch returned NULL"
+    | Some obj -> obj
+
+  (** Get a switch object by index from an ain file. *)
+  let of_int ain no =
+    of_ptr (c_of_int_checked ain no) no
+
+  (* internal to Ain module *)
+  let add_new' = foreign "ain_add_switch" (ain_ptr @-> returning int)
+
+  let add_new p =
+    of_int p (add_new' p)
+
+  let write ain obj =
+    let realloc_cases =
+      foreign "_ain_switch_realloc_cases" ((ptr t_c) @-> int @-> returning void)
+    in
+    let rec write_cases dst = function
+      | [] -> ()
+      | (value, address)::xs ->
+          setf !@dst case_value (Signed.Int32.of_int value);
+          setf !@dst case_address (Signed.Int32.of_int address);
+          write_cases (dst +@ 1) xs
+    in
+    let int_of_case_type = function
+      | IntCase -> 2
+      | StringCase -> 4
+    in
+    let obj_c = c_of_int_checked ain obj.index in
+    setf !@obj_c case_type (int_of_case_type obj.case_type);
+    setf !@obj_c default_address (Signed.Int32.of_int obj.default_address);
+    realloc_cases obj_c (List.length obj.cases);
+    write_cases (getf !@obj_c cases) obj.cases
 end
 
 (** Bindings for `struct ain_function_type` objects. *)

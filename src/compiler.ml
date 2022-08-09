@@ -19,8 +19,12 @@ open Jaf
 open Bytecode
 open CompileError
 
-type loop = {
-  mutable loop_addr : int option;
+type cflow_type =
+  | CFlowLoop of int
+  | CFlowSwitch of Alice.Ain.Switch.t
+
+type cflow_stmt = {
+  kind : cflow_type;
   mutable break_addrs : int list
 }
 
@@ -40,8 +44,8 @@ class jaf_compiler ain = object (self)
   val mutable start_address : int = 0
   (* Current address within the code section. *)
   val mutable current_address : int = 0
-  (* The currently active loops. *)
-  val loops = Stack.create ()
+  (* The currently active control flow constructs. *)
+  val cflow_stmts = Stack.create ()
   (* The currentl active scopes. *)
   val scopes = Stack.create ()
 
@@ -103,31 +107,67 @@ class jaf_compiler ain = object (self)
 
   (** Begin a loop. *)
   method start_loop addr =
-    Stack.push loops { loop_addr=Some addr; break_addrs=[] }
+    Stack.push cflow_stmts { kind=CFlowLoop addr; break_addrs=[] }
+
+  (** Begin a switch statement. *)
+  method start_switch =
+    let switch = Alice.Ain.Switch.add_new ain in
+    Stack.push cflow_stmts { kind=CFlowSwitch switch; break_addrs=[] };
+    switch.index
+
+  (** End the current control flow construct. Updates 'break' addresses. *)
+  method end_cflow_stmt =
+    let stmt = Stack.pop_exn cflow_stmts in
+    List.iter stmt.break_addrs ~f:(fun addr -> self#write_address_at addr current_address)
 
   (** End the current loop. Updates 'break' addresses. *)
   method end_loop =
-    let loop = Stack.pop_exn loops in
-    List.iter loop.break_addrs ~f:(fun addr -> self#write_address_at addr current_address)
+    begin match Stack.top cflow_stmts with
+    | Some { kind=CFlowLoop _; _ } -> ()
+    | _ -> compiler_bug "Mismatched start/end of control flow construct" None
+    end;
+    self#end_cflow_stmt
+
+  (** End the current switch statement. Updates 'break' addresses. *)
+  method end_switch =
+    begin match Stack.top cflow_stmts with
+    | Some { kind=CFlowSwitch switch; _ } -> Alice.Ain.Switch.write ain switch
+    | _ -> compiler_bug "Mismatched start/end of control flow construct" None
+    end;
+    self#end_cflow_stmt
+
+  method add_switch_case value node =
+    let (switch:Alice.Ain.Switch.t) = self#current_switch node in
+    switch.cases <- List.append switch.cases [(value, current_address)]
+
+  method set_switch_default node =
+    let switch = self#current_switch node in
+    switch.default_address <- current_address
 
   (** Retrieves the continue address for the current loop (i.e. the address
       that 'continue' statements should jump to). *)
   method get_continue_addr node =
     let rec get_first_continue = function
-      | { loop_addr=Some addr; _}::_ -> addr
+      | { kind=CFlowLoop addr; _}::_ -> addr
       | _::rest -> get_first_continue rest
       | [] -> compile_error "'continue' statement outside of loop" node
     in
-    match Stack.top loops with
-    | Some { loop_addr=Some addr; _} -> addr
-    | Some { loop_addr=None; _} -> get_first_continue (Stack.to_list loops)
+    match Stack.top cflow_stmts with
+    | Some { kind=CFlowLoop addr; _} -> addr
+    | Some { kind=CFlowSwitch _; _} -> get_first_continue (Stack.to_list cflow_stmts)
     | _ -> compile_error "'continue' statement outside of loop" node
+
+  (** Retrieves the index for the current switch statement. *)
+  method current_switch node =
+    match Stack.top cflow_stmts with
+    | Some { kind=CFlowSwitch switch; _} -> switch
+    | _ -> compile_error "switch case outside of switch statement" node
 
   (** Push the location of a 32-bit integer that should be updated to the
       address of the current scope's end point. *)
   method push_break_addr addr node =
-    match Stack.top loops with
-    | Some loop -> loop.break_addrs <- addr::loop.break_addrs
+    match Stack.top cflow_stmts with
+    | Some stmt -> stmt.break_addrs <- addr::stmt.break_addrs
     | None -> compile_error "'break' statement outside of loop" node
 
   method compile_CALLHLL lib_name fun_name t parent =
@@ -957,6 +997,19 @@ class jaf_compiler ain = object (self)
     | Break ->
         self#push_break_addr (current_address + 2) (ASTStatement stmt);
         self#write_instruction1 JUMP 0
+    | Switch (expr, stmts) ->
+        self#compile_expression expr;
+        self#write_instruction1 SWITCH (self#start_switch);
+        List.iter stmts ~f:self#compile_statement;
+        self#end_switch
+    | Case ({node=ConstInt i; _}, s) ->
+        self#add_switch_case i (ASTStatement stmt);
+        self#compile_statement s
+    | Case (_, _) ->
+        compile_error "invalid expression in switch case" (ASTStatement stmt)
+    | Default (s) ->
+        self#set_switch_default (ASTStatement stmt);
+        self#compile_statement s
     | Return None ->
         self#write_instruction0 RETURN
     | Return (Some e) ->

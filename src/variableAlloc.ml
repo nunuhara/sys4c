@@ -18,6 +18,11 @@ open Core
 open Jaf
 open CompileError
 
+type scope_kind =
+  | ScopeAnon
+  | ScopeLoop
+  | ScopeSwitch
+
 type var_set = (int, Int.comparator_witness) Set.t
 
 type scope = {
@@ -46,7 +51,7 @@ class variable_alloc_visitor ctx = object (self)
     let initial_vars = Set.of_list (module Int) (environment#var_id_list) in
     Stack.push scopes { initial_vars; labels=[]; gotos=[]; breaks=[]; continues=[] }
 
-  method end_scope is_loop =
+  method end_scope kind =
     let scope = Stack.pop_exn scopes in
     (* resolve gotos *)
     let rec update_gotos gotos unresolved =
@@ -74,27 +79,39 @@ class variable_alloc_visitor ctx = object (self)
     | (Some parent, unresolved) ->
         parent.gotos <- List.append parent.gotos unresolved
     end;
-    begin match is_loop with
-    | true ->
-        (* resolve breaks and continues *)
-        let update_break_continue (stmt, vars) =
-          stmt.delete_vars <- Set.elements (Set.diff vars scope.initial_vars)
-        in
+    let update_break_continue (stmt, vars) =
+      stmt.delete_vars <- Set.elements (Set.diff vars scope.initial_vars)
+    in
+    (* function to transfer breaks to parent scope *)
+    let carry_breaks () =
+      match Stack.top scopes with
+      | None ->
+          begin match scope.breaks with
+          | [] -> ()
+          | (stmt,_)::_ -> compile_error "Unresolved break statement" (ASTStatement stmt)
+          end
+      | Some parent -> parent.breaks <- List.append parent.breaks scope.breaks
+    in
+    (* function to transfer continues to parent scope *)
+    let carry_continues () =
+      match Stack.top scopes with
+      | None ->
+          begin match scope.continues with
+          | [] -> ()
+          | (stmt,_)::_ -> compile_error "Unresolved continue statement" (ASTStatement stmt)
+          end
+      | Some parent -> parent.continues <- List.append parent.continues scope.continues
+    in
+    begin match kind with
+    | ScopeLoop ->
         List.iter scope.breaks ~f:update_break_continue;
         List.iter scope.continues ~f:update_break_continue
-    | false ->
-        (* unresolved breaks and continues are moved to the parent scope *)
-        begin match Stack.top scopes with
-        | None ->
-            begin match (scope.breaks, scope.continues) with
-            | ([], []) -> ()
-            | ((stmt,_)::_, _) -> compile_error "Unresolved break statement" (ASTStatement stmt)
-            | (_, (stmt,_)::_) -> compile_error "Unresolved continue statement" (ASTStatement stmt)
-            end
-        | Some parent ->
-            parent.breaks <- List.append parent.breaks scope.breaks;
-            parent.continues <- List.append parent.continues scope.continues
-        end
+    | ScopeSwitch ->
+        List.iter scope.breaks ~f:update_break_continue;
+        carry_continues ()
+    | ScopeAnon ->
+        carry_breaks ();
+        carry_continues ()
     end
 
   method current_var_set =
@@ -182,6 +199,8 @@ class variable_alloc_visitor ctx = object (self)
         (self#start_scope)
     | For (_, _, _, _) ->
         (self#start_scope)
+    | Switch (_, _) ->
+        (self#start_scope)
     | Labeled (name, _) ->
         self#add_label name
     | Goto _ ->
@@ -195,11 +214,13 @@ class variable_alloc_visitor ctx = object (self)
     super#visit_statement stmt;
     begin match stmt.node with
     | Compound (_) ->
-        self#end_scope false
+        self#end_scope ScopeAnon
     | While (_, _) | DoWhile (_, _) ->
-        self#end_scope true
+        self#end_scope ScopeLoop
     | For (_, _, _, _) ->
-        self#end_scope true
+        self#end_scope ScopeLoop
+    | Switch (_, _) ->
+        self#end_scope ScopeSwitch
     | _ -> ()
     end
 
@@ -219,7 +240,7 @@ class variable_alloc_visitor ctx = object (self)
     List.iter f.params ~f:self#add_var;
     self#start_scope;
     super#visit_fundecl f;
-    self#end_scope false;
+    self#end_scope ScopeAnon;
     (* write updated fundecl to ain file *)
     begin match Alice.Ain.get_function ctx.ain f.name with
     | Some (obj) -> obj |> jaf_to_ain_function f |> add_vars |> Alice.Ain.Function.write ctx.ain
