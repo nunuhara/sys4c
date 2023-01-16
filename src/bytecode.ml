@@ -1218,29 +1218,27 @@ let syscall_of_string = function
   | _ -> None
 
 let function_of_syscall sys =
-  let t_void = Alice.Ain.Type.make Void in
-  let t_int = Alice.Ain.Type.make Int in
-  let t_string = Alice.Ain.Type.make String in
-  let t_bool = Alice.Ain.Type.make Bool in
-  let t_ref_int = Alice.Ain.Type.make ~is_ref:true Int in
-  let t_ref_array_string = Alice.Ain.Type.make ~is_ref:true (Array t_string) in
-  let make_vars (types:Alice.Ain.Type.t list) =
+  let t_void = Ain.Type.make Void in
+  let t_int = Ain.Type.make Int in
+  let t_string = Ain.Type.make String in
+  let t_bool = Ain.Type.make Bool in
+  let t_ref_int = Ain.Type.make ~is_ref:true Int in
+  let t_ref_array_string = Ain.Type.make ~is_ref:true (Array t_string) in
+  let make_vars (types:Ain.Type.t list) =
     let make_var t i =
-      let (r:Alice.Ain.Variable.t) =
+      let (r:Ain.Variable.t) =
         { index = i;
           name = "";
           name2 = Some "";
           value_type = t;
-          initval = None;
-          group_index = 0;
-          var_type = 0
+          initval = None
         }
       in
       r
     in
     List.map2_exn types (List.init (List.length types) ~f:(~+)) ~f:make_var
   in
-  let (default:Alice.Ain.Function.t) =
+  let (default:Ain.Function.t) =
     { index       = -1;
       name        = "";
       address     = 0;
@@ -1248,10 +1246,10 @@ let function_of_syscall sys =
       vars        = [];
       return_type = t_void;
       is_label    = false;
-      is_lambda   = 0;
-      crc         = 0;
-      struct_type = -1;
-      enum_type   = -1
+      is_lambda   = false;
+      crc         = 0l;
+      struct_type = None;
+      enum_type   = None
     }
   in
   let make_function i return_type name arg_types =
@@ -1369,7 +1367,7 @@ let delegate_builtin_of_string = function
   | "Clear" -> Some DelegateClear
   | _ -> None
 
-let builtin_of_string (t:Alice.Ain.Type.data) name =
+let builtin_of_string (t:Ain.Type.data) name =
   match t with
   | Int -> int_builtin_of_string name
   | Float -> float_builtin_of_string name
@@ -1379,13 +1377,13 @@ let builtin_of_string (t:Alice.Ain.Type.data) name =
   | _ -> None
 
 let function_of_builtin builtin =
-  let t_void = Alice.Ain.Type.make Void in
-  let t_int = Alice.Ain.Type.make Int in
-  let t_string = Alice.Ain.Type.make String in
-  let t_ref_array = Alice.Ain.Type.make ~is_ref:true (Array t_void) in
-  let t_func = Alice.Ain.Type.make ~is_ref:true (Function 0) in
-  let t_method = Alice.Ain.Type.make ~is_ref:true (Method 0) in
-  let (default:Alice.Ain.Function.t) =
+  let t_void = Ain.Type.make Void in
+  let t_int = Ain.Type.make Int in
+  let t_string = Ain.Type.make String in
+  let t_ref_array = Ain.Type.make ~is_ref:true (Array t_void) in
+  let t_func = Ain.Type.make ~is_ref:true (Function 0) in
+  let t_method = Ain.Type.make ~is_ref:true (Method 0) in
+  let (default:Ain.Function.t) =
     { index       = -1;
       name        = "";
       address     = 0;
@@ -1393,22 +1391,20 @@ let function_of_builtin builtin =
       vars        = [];
       return_type = t_void;
       is_label    = false;
-      is_lambda   = 0;
-      crc         = 0;
-      struct_type = -1;
-      enum_type   = -1
+      is_lambda   = false;
+      crc         = 0l;
+      struct_type = None;
+      enum_type   = None
     }
   in
-  let make_function return_type name (arg_types:Alice.Ain.Type.t list) =
-    let make_var (t:Alice.Ain.Type.t) i =
-      let (r:Alice.Ain.Variable.t) =
+  let make_function return_type name (arg_types:Ain.Type.t list) =
+    let make_var (t:Ain.Type.t) i =
+      let (r:Ain.Variable.t) =
         { index = i;
           name = "";
           name2 = Some "";
           value_type = t;
-          initval = None;
-          group_index = 0;
-          var_type = 0
+          initval = None
         }
       in
       r
@@ -1485,3 +1481,279 @@ let argtype_of_int = function
   | 13 -> Delegate
   | 14 -> Switch
   | _ -> failwith "invalid argument type"
+
+let args_of_opcode = function
+  | PUSH ->           [Int]
+  | POP ->            []
+  | REF ->            []
+  | REFREF ->         []
+  | PUSHGLOBALPAGE -> []
+  | PUSHLOCALPAGE ->  []
+  | INV ->            []
+  | NOT ->            []
+  | COMPL ->          []
+  | ADD ->            []
+  | SUB ->            []
+  | MUL ->            []
+  | DIV ->            []
+  | MOD ->            []
+  | AND ->            []
+  | OR ->             []
+  | XOR ->            []
+  | LSHIFT ->         []
+  | RSHIFT ->         []
+  | LT ->             []
+  | GT ->             []
+  | LTE ->            []
+  | GTE ->            []
+  | NOTE ->           []
+  | EQUALE ->         []
+  | ASSIGN ->         []
+  | PLUSA ->          []
+  | MINUSA ->         []
+  | MULA ->           []
+  | DIVA ->           []
+  | MODA ->           []
+  | ANDA ->           []
+  | ORA ->            []
+  | XORA ->           []
+  | LSHIFTA ->        []
+  | RSHIFTA ->        []
+  | F_ASSIGN ->       []
+  | F_PLUSA ->        []
+  | F_MINUSA ->       []
+  | F_MULA ->         []
+  | F_DIVA ->         []
+  | DUP2 ->           []
+  | DUP_X2 ->         []
+  | CMP ->            []
+  | JUMP ->           [Address]
+  | IFZ ->            [Address]
+  | IFNZ ->           [Address]
+  | RETURN ->         []
+  | CALLFUNC ->       [Function]
+  | INC ->            []
+  | DEC ->            []
+  | FTOI ->           []
+  | ITOF ->           []
+  | F_INV ->          []
+  | F_ADD ->          []
+  | F_SUB ->          []
+  | F_MUL ->          []
+  | F_DIV ->          []
+  | F_LT ->           []
+  | F_GT ->           []
+  | F_LTE ->          []
+  | F_GTE ->          []
+  | F_NOTE ->         []
+  | F_EQUALE ->       []
+  | F_PUSH ->         [Float]
+  | S_PUSH ->         [String]
+  | S_POP ->          []
+  | S_ADD ->          []
+  | S_ASSIGN ->       []
+  | S_PLUSA ->        []
+  | S_REF ->          []
+  | S_REFREF ->       []
+  | S_NOTE ->         []
+  | S_EQUALE ->       []
+  | SF_CREATE ->      []
+  | SF_CREATEPIXEL -> []
+  | SF_CREATEALPHA -> []
+  | SR_POP ->         []
+  | SR_ASSIGN ->      []
+  | SR_REF ->         [Struct]
+  | SR_REFREF ->      []
+  | A_ALLOC ->        []
+  | A_REALLOC ->      []
+  | A_FREE ->         []
+  | A_NUMOF ->        []
+  | A_COPY ->         []
+  | A_FILL ->         []
+  | C_REF ->          []
+  | C_ASSIGN ->       []
+  | MSG ->            [Message]
+  | CALLHLL ->        [Library; LibraryFunction; Int]
+  | PUSHSTRUCTPAGE -> []
+  | CALLMETHOD ->     [Function]
+  | SH_GLOBALREF ->   [Global]
+  | SH_LOCALREF ->    [Local]
+  | SWITCH ->         [Switch]
+  | STRSWITCH ->      [Switch]
+  | FUNC ->           [Function]
+  | EOF ->            [File]
+  | CALLSYS ->        [Syscall]
+  | SJUMP ->          []
+  | CALLONJUMP ->     []
+  | SWAP ->           []
+  | SH_STRUCTREF ->   [Int(*Member*)]
+  | S_LENGTH ->       []
+  | S_LENGTHBYTE ->   []
+  | I_STRING ->       []
+  | CALLFUNC2 ->      []
+  | DUP2_X1 ->        []
+  | R_ASSIGN ->       []
+  | FT_ASSIGNS ->     []
+  | ASSERT ->         []
+  | S_LT ->           []
+  | S_GT ->           []
+  | S_LTE ->          []
+  | S_GTE ->          []
+  | S_LENGTH2 ->      []
+  | S_LENGTHBYTE2 ->  []
+  | NEW ->            [Struct; Int]
+  | DELETE ->         []
+  | CHECKUDO ->       []
+  | A_REF ->          []
+  | DUP ->            []
+  | DUP_U2 ->         []
+  | SP_INC ->         []
+  | SP_DEC ->         []
+  | ENDFUNC ->        [Function]
+  | R_EQUALE ->       []
+  | R_NOTE ->         []
+  | SH_LOCALCREATE -> [Local; Struct]
+  | SH_LOCALDELETE -> [Local]
+  | STOI ->           []
+  | A_PUSHBACK ->     []
+  | A_POPBACK ->      []
+  | S_EMPTY ->        []
+  | A_EMPTY ->        []
+  | A_ERASE ->        []
+  | A_INSERT ->       []
+  | SH_LOCALINC ->    [Local]
+  | SH_LOCALDEC ->    [Local]
+  | SH_LOCALASSIGN -> [Local; Int]
+  | ITOB ->           []
+  | S_FIND ->         []
+  | S_GETPART ->      []
+  | A_SORT ->         []
+  | S_PUSHBACK ->     []
+  | S_POPBACK ->      []
+  | FTOS ->           []
+  | S_MOD ->          [Int]
+  | S_PLUSA2 ->       []
+  | OBJSWAP ->        [Int]
+  | S_ERASE ->        []
+  | SR_REF2 ->        [Struct]
+  | S_ERASE2 ->       []
+  | S_PUSHBACK2 ->    []
+  | S_POPBACK2 ->     []
+  | ITOLI ->          []
+  | LI_ADD ->         []
+  | LI_SUB ->         []
+  | LI_MUL ->         []
+  | LI_DIV ->         []
+  | LI_MOD ->         []
+  | LI_ASSIGN ->      []
+  | LI_PLUSA ->       []
+  | LI_MINUSA ->      []
+  | LI_MULA ->        []
+  | LI_DIVA ->        []
+  | LI_MODA ->        []
+  | LI_ANDA ->        []
+  | LI_ORA ->         []
+  | LI_XORA ->        []
+  | LI_LSHIFTA ->     []
+  | LI_RSHIFTA ->     []
+  | LI_INC ->         []
+  | LI_DEC ->         []
+  | A_FIND ->         []
+  | A_REVERSE ->      []
+  | SH_SR_ASSIGN ->                      []
+  | SH_MEM_ASSIGN_LOCAL ->               [Int(*Member*); Local]
+  | A_NUMOF_GLOB_1 ->                    [Global]
+  | A_NUMOF_STRUCT_1 ->                  [Int(*Member*)]
+  | SH_MEM_ASSIGN_IMM ->                 [Int(*Member*); Int]
+  | SH_LOCALREFREF ->                    [Local]
+  | SH_LOCALASSIGN_SUB_IMM ->            [Local; Int]
+  | SH_IF_LOC_LT_IMM ->                  [Local; Int; Address]
+  | SH_IF_LOC_GE_IMM ->                  [Local; Int; Address]
+  | SH_LOCREF_ASSIGN_MEM ->              [Local; Int(*Member*)]
+  | PAGE_REF ->                          [Int]
+  | SH_GLOBAL_ASSIGN_LOCAL ->            [Global; Local]
+  | SH_STRUCTREF_GT_IMM ->               [Int(*Member*); Int]
+  | SH_STRUCT_ASSIGN_LOCALREF_ITOB ->    [Int(*Member*); Local]
+  | SH_LOCAL_ASSIGN_STRUCTREF ->         [Local; Int(*Member*)]
+  | SH_IF_STRUCTREF_NE_LOCALREF ->       [Int(*Member*); Local; Address]
+  | SH_IF_STRUCTREF_GT_IMM ->            [Int(*Member*); Int; Address]
+  | SH_STRUCTREF_CALLMETHOD_NO_PARAM ->  [Int(*Member*); Function]
+  | SH_STRUCTREF2 ->                     [Int(*Member*); Int(*Member2*)]
+  | SH_REF_STRUCTREF2 ->                 [Int(*Member*); Int(*Member2*)]
+  | SH_STRUCTREF3 ->                     [Int(*Member*); Int(*Member2*); Int(*Member3*)]
+  | SH_STRUCTREF2_CALLMETHOD_NO_PARAM -> [Int(*Member*); Int(*Member2*); Function]
+  | SH_IF_STRUCTREF_Z ->                 [Int(*Member*); Address]
+  | SH_IF_STRUCT_A_NOT_EMPTY ->          [Int(*Member*); Address]
+  | SH_IF_LOC_GT_IMM ->                  [Local; Int; Address]
+  | SH_IF_STRUCTREF_NE_IMM ->            [Int(*Member*); Int; Address]
+  | THISCALLMETHOD_NOPARAM ->            [Function]
+  | SH_IF_LOC_NE_IMM ->                  [Local; Int; Address]
+  | SH_IF_STRUCTREF_EQ_IMM ->            [Int(*Member*); Int; Address]
+  | SH_GLOBAL_ASSIGN_IMM ->              [Global; Int]
+  | SH_LOCALSTRUCT_ASSIGN_IMM ->         [Local; Int(*LocalMember*); Int]
+  | SH_STRUCT_A_PUSHBACK_LOCAL_STRUCT -> [Int(*Member*); Local]
+  | SH_GLOBAL_A_PUSHBACK_LOCAL_STRUCT -> [Global; Local]
+  | SH_LOCAL_A_PUSHBACK_LOCAL_STRUCT ->  [Local; Local]
+  | SH_IF_SREF_NE_STR0 ->                [String; Address]
+  | SH_S_ASSIGN_REF ->                   []
+  | SH_A_FIND_SREF ->                    []
+  | SH_SREF_EMPTY ->                     []
+  | SH_STRUCTSREF_EQ_LOCALSREF ->        [Int(*Member*); Local]
+  | SH_LOCALSREF_EQ_STR0 ->              [Local; String]
+  | SH_STRUCTSREF_NE_LOCALSREF ->        [Int(*Member*); Local]
+  | SH_LOCALSREF_NE_STR0 ->              [Local; String]
+  | SH_STRUCT_SR_REF ->                  [Int(*Member*); Struct]
+  | SH_STRUCT_S_REF ->                   [Int(*Member*)]
+  | S_REF2 ->                            [Int(*Member*)]
+  | SH_REF_LOCAL_ASSIGN_STRUCTREF2 ->    [Int(*Member*); Local; Int(*Member2*)]
+  | SH_GLOBAL_S_REF ->                   [Global]
+  | SH_LOCAL_S_REF ->                    [Local]
+  | SH_LOCALREF_SASSIGN_LOCALSREF ->     [Local; Local]
+  | SH_LOCAL_APUSHBACK_LOCALSREF ->      [Local; Local]
+  | SH_S_ASSIGN_CALLSYS19 ->             []
+  | SH_S_ASSIGN_STR0 ->                  [String]
+  | SH_SASSIGN_LOCALSREF ->              [Local]
+  | SH_STRUCTREF_SASSIGN_LOCALSREF ->    [Int(*Member*); Local]
+  | SH_LOCALSREF_EMPTY ->                [Local]
+  | SH_GLOBAL_APUSHBACK_LOCALSREF ->     [Global; Local]
+  | SH_STRUCT_APUSHBACK_LOCALSREF ->     [Int(*Member*); Local]
+  | SH_STRUCTSREF_EMPTY ->               [Int(*Member*)]
+  | SH_GLOBALSREF_EMPTY ->               [Global]
+  | SH_SASSIGN_STRUCTSREF ->             [Int(*Member*)]
+  | SH_SASSIGN_GLOBALSREF ->             [Global]
+  | SH_STRUCTSREF_NE_STR0 ->             [Int(*Member*); String]
+  | SH_GLOBALSREF_NE_STR0 ->             [Global; String]
+  | SH_LOC_LT_IMM_OR_LOC_GE_IMM ->       [Local; Int; Int]
+  | A_SORT_MEM ->         []
+  | DG_ADD ->             []
+  | DG_SET ->             []
+  | DG_CALL ->            [Delegate; Address]
+  | DG_NUMOF ->           []
+  | DG_EXIST ->           []
+  | DG_ERASE ->           []
+  | DG_CLEAR ->           []
+  | DG_COPY ->            []
+  | DG_ASSIGN ->          []
+  | DG_PLUSA ->           []
+  | DG_POP ->             []
+  | DG_NEW_FROM_METHOD -> []
+  | DG_MINUSA ->          []
+  | DG_CALLBEGIN ->       [Delegate]
+  | DG_NEW ->             []
+  | DG_STR_TO_METHOD ->   [Delegate]
+  | OP_0X102 -> []
+  | X_GETENV -> []
+  | X_SET ->    []
+  | X_ICAST ->  [Struct]
+  | X_OP_SET -> [Int]
+  | OP_0X107 -> []
+  | OP_0X108 -> []
+  | OP_0X109 -> []
+  | X_DUP ->    [Int]
+  | X_MOV ->    [Int; Int]
+  | X_REF ->    [Int]
+  | X_ASSIGN -> [Int]
+  | X_A_INIT -> [Int]
+  | X_A_SIZE -> []
+  | X_TO_STR -> [Int]
+

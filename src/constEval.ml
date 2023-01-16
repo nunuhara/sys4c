@@ -24,10 +24,10 @@ let expr_replace dst expr =
 
 let const_replace dst const_expr =
   begin match const_expr with
-  | ConstInt _    -> dst.valuetype <- Some (Alice.Ain.Type.make Alice.Ain.Type.Int)
-  | ConstFloat _  -> dst.valuetype <- Some (Alice.Ain.Type.make Alice.Ain.Type.Float)
-  | ConstChar _   -> dst.valuetype <- Some (Alice.Ain.Type.make Alice.Ain.Type.Int)
-  | ConstString _ -> dst.valuetype <- Some (Alice.Ain.Type.make Alice.Ain.Type.String)
+  | ConstInt _    -> dst.valuetype <- Some (Ain.Type.make Ain.Type.Int)
+  | ConstFloat _  -> dst.valuetype <- Some (Ain.Type.make Ain.Type.Float)
+  | ConstChar _   -> dst.valuetype <- Some (Ain.Type.make Ain.Type.Int)
+  | ConstString _ -> dst.valuetype <- Some (Ain.Type.make Ain.Type.String)
   | _             -> compiler_bug "const_replace: not a constant expression"
                                   (Some(ASTExpression {node=const_expr; valuetype=None}))
   end;

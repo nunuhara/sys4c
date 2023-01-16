@@ -17,9 +17,9 @@
 open Core
 open Jaf
 
-exception Type_error of Alice.Ain.Type.t * expression option * ast_node
+exception Type_error of Ain.Type.t * expression option * ast_node
 exception Undefined_variable of string * ast_node
-exception Arity_error of Alice.Ain.Function.t * expression list * ast_node
+exception Arity_error of Ain.Function.t * expression list * ast_node
 exception Not_lvalue_error of expression * ast_node
 exception Const_error of variable
 exception CompileError of string * ast_node

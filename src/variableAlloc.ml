@@ -229,12 +229,11 @@ class variable_alloc_visitor ctx = object (self)
     super#visit_local_variable v
 
   method! visit_fundecl f =
-    let conv_var (v:variable) =
-      Alice.Ain.Variable.make_local v.name (jaf_to_ain_type v.type_spec)
+    let conv_var index (v:variable) =
+      Ain.Variable.make ~index v.name (jaf_to_ain_type v.type_spec)
     in
-    let add_vars (a_f : Alice.Ain.Function.t) =
-      a_f.vars <- List.map (List.rev vars) ~f:conv_var;
-      a_f
+    let add_vars (a_f : Ain.Function.t) =
+      { a_f with vars = List.mapi (List.rev vars) ~f:conv_var }
     in
     (* add params to var list *)
     List.iter f.params ~f:self#add_var;
@@ -242,8 +241,8 @@ class variable_alloc_visitor ctx = object (self)
     super#visit_fundecl f;
     self#end_scope ScopeAnon;
     (* write updated fundecl to ain file *)
-    begin match Alice.Ain.get_function ctx.ain f.name with
-    | Some (obj) -> obj |> jaf_to_ain_function f |> add_vars |> Alice.Ain.Function.write ctx.ain
+    begin match Ain.get_function ctx.ain f.name with
+    | Some (obj) -> obj |> jaf_to_ain_function f |> add_vars |> Ain.write_function ctx.ain
     | None -> compiler_bug "Undefined function" (Some(ASTDeclaration(Function f)))
     end;
     vars <- []

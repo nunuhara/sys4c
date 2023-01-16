@@ -27,12 +27,12 @@ class type_declare_visitor ctx = object (self)
   val functions = Stack.create ()
 
   method declare_function decl =
-    begin match (decl.return.qualifier, (Alice.Ain.get_function ctx.ain decl.name)) with
+    begin match (decl.return.qualifier, (Ain.get_function ctx.ain decl.name)) with
     | (Some Override, None) ->
         compile_error "function doesn't exist for override" (ASTDeclaration(Function decl))
     | (Some Override, Some super_f) ->
         decl.index <- Some super_f.index;
-        decl.super_index <- Some (Alice.Ain.dup_function ctx.ain super_f.index);
+        decl.super_index <- Some (Ain.dup_function ctx.ain super_f.index);
         (* update index of overridden function, if it was defined in this file *)
         let is_super f = (Option.value_exn f.index) = super_f.index in
         begin match Stack.find functions ~f:is_super with
@@ -42,7 +42,7 @@ class type_declare_visitor ctx = object (self)
     | (_, Some _) ->
         compile_error "Duplicate function definition" (ASTDeclaration(Function decl))
     | (_, None) ->
-        decl.index <- Some (Alice.Ain.add_function ctx.ain decl.name).index
+        decl.index <- Some (Ain.add_function ctx.ain decl.name).index
     end;
     Stack.push functions decl
 
@@ -52,24 +52,24 @@ class type_declare_visitor ctx = object (self)
         begin match g.type_spec.qualifier with
         | Some Const -> ()
         | _ ->
-            if Option.is_some (Alice.Ain.get_global ctx.ain g.name) then
+            if Option.is_some (Ain.get_global ctx.ain g.name) then
               compile_error "duplicate global variable definition" (ASTDeclaration decl);
-            g.index <- Some (Alice.Ain.add_global ctx.ain g.name)
+            g.index <- Some (Ain.add_global ctx.ain g.name)
         end
     | Function (f) ->
         self#declare_function f
     | FuncTypeDef (f) ->
-        if Option.is_some (Alice.Ain.get_functype ctx.ain f.name) then
+        if Option.is_some (Ain.get_functype ctx.ain f.name) then
           compile_error "duplicate functype definition" (ASTDeclaration decl);
-        ignore (Alice.Ain.add_functype ctx.ain f.name : Alice.Ain.FunctionType.t)
+        ignore (Ain.add_functype ctx.ain f.name : Ain.FunctionType.t)
     | DelegateDef (f) ->
-        if Option.is_some (Alice.Ain.get_delegate ctx.ain f.name) then
+        if Option.is_some (Ain.get_delegate ctx.ain f.name) then
           compile_error "duplicate delegate definition" (ASTDeclaration decl);
-        ignore (Alice.Ain.add_delegate ctx.ain f.name : Alice.Ain.FunctionType.t)
+        ignore (Ain.add_delegate ctx.ain f.name : Ain.FunctionType.t)
     | StructDef (s) ->
-        if Option.is_some (Alice.Ain.get_struct ctx.ain s.name) then
+        if Option.is_some (Ain.get_struct ctx.ain s.name) then
           compile_error "duplicate struct definition" (ASTDeclaration decl);
-        let ain_s = Alice.Ain.add_struct ctx.ain s.name in
+        let ain_s = Ain.add_struct ctx.ain s.name in
         let visit_decl = function
           | Constructor f ->
               if not (String.equal f.name s.name) then
@@ -104,29 +104,29 @@ class type_resolve_visitor ctx decl_only = object (self)
   inherit ivisitor ctx as super
 
   method resolve_type name node =
-    match Alice.Ain.get_struct_index ctx.ain name with
+    match Ain.get_struct_index ctx.ain name with
     | Some i -> Struct (name, i)
     | None ->
-        begin match Alice.Ain.get_struct ctx.import_ain name with
+        begin match Ain.get_struct ctx.import_ain name with
         | Some s ->
             (* import struct declaration *)
-            Struct (name, Alice.Ain.write_new_struct ctx.ain s)
+            Struct (name, Ain.write_new_struct ctx.ain s)
         | None ->
-            begin match Alice.Ain.get_functype_index ctx.ain name with
+            begin match Ain.get_functype_index ctx.ain name with
             | Some i -> FuncType (name, i)
             | None ->
-                begin match Alice.Ain.get_functype ctx.import_ain name with
+                begin match Ain.get_functype ctx.import_ain name with
                 | Some ft ->
                     (* import functype declaration *)
-                    FuncType (name, Alice.Ain.write_new_functype ctx.ain ft)
+                    FuncType (name, Ain.write_new_functype ctx.ain ft)
                 | None ->
-                    begin match Alice.Ain.get_delegate_index ctx.ain name with
+                    begin match Ain.get_delegate_index ctx.ain name with
                     | Some i -> Delegate (name, i)
                     | None ->
-                        begin match Alice.Ain.get_delegate ctx.import_ain name with
+                        begin match Ain.get_delegate ctx.import_ain name with
                         | Some ft ->
                             (* import delegate declaration *)
-                            Delegate (name, Alice.Ain.write_new_delegate ctx.ain ft)
+                            Delegate (name, Ain.write_new_delegate ctx.ain ft)
                         | None ->
                             compile_error ("Undefined type: " ^ name) node
                         end
@@ -156,11 +156,7 @@ class type_resolve_visitor ctx decl_only = object (self)
   method! visit_declaration decl =
     let function_class (f:fundecl) =
       match String.split_on_chars f.name ~on:['@'] with
-      | hd :: _ ->
-          begin match Alice.Ain.get_struct' ctx.ain hd with
-          | -1 -> None
-          | i -> Some i
-          end
+      | hd :: _ -> Ain.get_struct_index ctx.ain hd
       | _ -> None
     in
     let resolve_function f =
@@ -208,24 +204,24 @@ class type_define_visitor ctx = object
         | Some Const ->
             ctx.const_vars <- g::ctx.const_vars
         | _ ->
-            Alice.Ain.write_global ctx.ain g.name (jaf_to_ain_type g.type_spec)
+            Ain.set_global_type ctx.ain g.name (jaf_to_ain_type g.type_spec)
         end
     | Function (f) ->
-        let obj = Alice.Ain.Function.of_int ctx.ain (Option.value_exn f.index) in
-        obj |> jaf_to_ain_function f |> Alice.Ain.Function.write ctx.ain
+        let obj = Ain.get_function_by_index ctx.ain (Option.value_exn f.index) in
+        obj |> jaf_to_ain_function f |> Ain.write_function ctx.ain
     | FuncTypeDef (f) ->
-        begin match Alice.Ain.get_functype ctx.ain f.name with
-        | Some (obj) -> obj |> jaf_to_ain_functype f |> Alice.Ain.FunctionType.write ctx.ain
+        begin match Ain.get_functype ctx.ain f.name with
+        | Some (obj) -> obj |> jaf_to_ain_functype f |> Ain.write_functype ctx.ain
         | None -> compiler_bug "undefined functype" (Some(ASTDeclaration decl))
         end
     | DelegateDef (f) ->
-        begin match Alice.Ain.get_delegate ctx.ain f.name with
-        | Some (obj) -> obj |> jaf_to_ain_functype f |> Alice.Ain.FunctionType.write_delegate ctx.ain
+        begin match Ain.get_delegate ctx.ain f.name with
+        | Some (obj) -> obj |> jaf_to_ain_functype f |> Ain.write_delegate ctx.ain
         | None -> compiler_bug "undefined delegate" (Some(ASTDeclaration decl))
         end
     | StructDef (s) ->
-        begin match Alice.Ain.get_struct ctx.ain s.name with
-        | Some (obj) -> obj |> jaf_to_ain_struct s |> Alice.Ain.Struct.write ctx.ain
+        begin match Ain.get_struct ctx.ain s.name with
+        | Some (obj) -> obj |> jaf_to_ain_struct s |> Ain.write_struct ctx.ain
         | None -> compiler_bug "undefined struct" (Some(ASTDeclaration decl))
         end
     | Enum (_) ->
@@ -247,12 +243,9 @@ let define_library ctx decls name =
   resolve_types ctx struct_defs true;
   define_types ctx struct_defs;
   (* define library *)
-  let lib = Alice.Ain.add_library ctx.ain name in
-  let add_function = function
-    | Function (f) ->
-        Alice.Ain.Library.add_function lib (jaf_to_ain_hll_function f)
-    | decl ->
-        compiler_bug "unexpected declaration in .hll file" (Some(ASTDeclaration decl))
-  in
-  List.iter fun_decls ~f:add_function;
-  Alice.Ain.Library.write ctx.ain lib
+  let functions = List.map fun_decls ~f:(function
+    | Function (f) -> jaf_to_ain_hll_function f
+    | decl -> compiler_bug "unexpected declaration in .hll file" (Some (ASTDeclaration decl))
+  ) in
+  let lib = { (Ain.add_library ctx.ain name) with functions } in
+  Ain.write_library ctx.ain lib

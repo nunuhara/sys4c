@@ -2,7 +2,7 @@
  (name sys4c)
  (public_name sys4c)
  (package sys4c)
- (libraries core alice)
+ (libraries core core_unix.filename_unix core_unix.command_unix camlzip)
  (preprocess (pps ppx_jane)))
 
 (ocamllex lexer)

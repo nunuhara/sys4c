@@ -21,7 +21,7 @@ open CompileError
 
 type cflow_type =
   | CFlowLoop of int
-  | CFlowSwitch of Alice.Ain.Switch.t
+  | CFlowSwitch of Ain.Switch.t
 
 type cflow_stmt = {
   kind : cflow_type;
@@ -29,7 +29,7 @@ type cflow_stmt = {
 }
 
 type scope = {
-  mutable vars : Alice.Ain.Variable.t list;
+  mutable vars : Ain.Variable.t list;
   mutable labels : (string * int) list;
   mutable gotos : (string * int * statement) list
 }
@@ -37,9 +37,9 @@ type scope = {
 class jaf_compiler ain = object (self)
 
   (* The function currently being compiled. *)
-  val mutable current_function : Alice.Ain.Function.t option = None
+  val mutable current_function : Ain.Function.t option = None
   (* The bytecode output buffer. *)
-  val mutable buffer = Alice.CBuffer.create 2048
+  val mutable buffer = CBuffer.create 2048
   (* Address of the start of the current buffer. *)
   val mutable start_address : int = 0
   (* Current address within the code section. *)
@@ -111,7 +111,7 @@ class jaf_compiler ain = object (self)
 
   (** Begin a switch statement. *)
   method start_switch =
-    let switch = Alice.Ain.Switch.add_new ain in
+    let switch = Ain.add_switch ain in
     Stack.push cflow_stmts { kind=CFlowSwitch switch; break_addrs=[] };
     switch.index
 
@@ -131,14 +131,14 @@ class jaf_compiler ain = object (self)
   (** End the current switch statement. Updates 'break' addresses. *)
   method end_switch =
     begin match Stack.top cflow_stmts with
-    | Some { kind=CFlowSwitch switch; _ } -> Alice.Ain.Switch.write ain switch
+    | Some { kind=CFlowSwitch switch; _ } -> Ain.write_switch ain switch
     | _ -> compiler_bug "Mismatched start/end of control flow construct" None
     end;
     self#end_cflow_stmt
 
   method add_switch_case value node =
-    let (switch:Alice.Ain.Switch.t) = self#current_switch node in
-    switch.cases <- List.append switch.cases [(value, current_address)]
+    let (switch:Ain.Switch.t) = self#current_switch node in
+    switch.cases <- List.append switch.cases [(Int32.of_int_exn value, current_address)]
 
   method set_switch_default node =
     let switch = self#current_switch node in
@@ -171,9 +171,9 @@ class jaf_compiler ain = object (self)
     | None -> compile_error "'break' statement outside of loop" node
 
   method compile_CALLHLL lib_name fun_name t parent =
-    match Alice.Ain.get_library_index ain lib_name with
+    match Ain.get_library_index ain lib_name with
     | Some lib_no ->
-        begin match Alice.Ain.get_library_function_index ain lib_no fun_name with
+        begin match Ain.get_library_function_index ain lib_no fun_name with
         | Some fun_no ->
             self#write_instruction3 CALLHLL lib_no fun_no t
         | None ->
@@ -183,52 +183,52 @@ class jaf_compiler ain = object (self)
         compile_error "No HLL library found for built-in" parent
 
   method write_instruction0 op =
-    match (Alice.Ain.version_gte ain 14 0, op) with
+    match (Ain.version_gte ain (14, 0), op) with
     | (true, REF)    -> self#write_instruction1 X_REF 1
     | (true, REFREF) -> self#write_instruction1 X_REF 2
     | (true, DUP)    -> self#write_instruction1 X_DUP 1
     | (true, DUP2)   -> self#write_instruction1 X_DUP 2
     | (true, ASSIGN) -> self#write_instruction1 X_ASSIGN 1
     | _ ->
-        Alice.CBuffer.write_int16 buffer (int_of_opcode op);
+        CBuffer.write_int16 buffer (int_of_opcode op);
         current_address <- current_address + 2
 
   method write_instruction1 op arg0 =
-    match (Alice.Ain.version_lt ain 8 0, op) with
+    match (Ain.version_lt ain (8, 0), op) with
     | (true, S_MOD) ->
         self#write_instruction1 PUSH arg0;
         self#write_instruction0 S_MOD
     | _ ->
-        Alice.CBuffer.write_int16 buffer (int_of_opcode op);
-        Alice.CBuffer.write_int32 buffer arg0;
+        CBuffer.write_int16 buffer (int_of_opcode op);
+        CBuffer.write_int32 buffer arg0;
         current_address <- current_address + 6
 
   method write_instruction1_float op arg0 =
-    Alice.CBuffer.write_int16 buffer (int_of_opcode op);
-    Alice.CBuffer.write_float buffer arg0;
+    CBuffer.write_int16 buffer (int_of_opcode op);
+    CBuffer.write_float buffer arg0;
     current_address <- current_address + 6
 
   method write_instruction2 op arg0 arg1 =
-    Alice.CBuffer.write_int16 buffer (int_of_opcode op);
-    Alice.CBuffer.write_int32 buffer arg0;
-    Alice.CBuffer.write_int32 buffer arg1;
+    CBuffer.write_int16 buffer (int_of_opcode op);
+    CBuffer.write_int32 buffer arg0;
+    CBuffer.write_int32 buffer arg1;
     current_address <- current_address + 10
 
   method write_instruction3 op arg0 arg1 arg2 =
-    Alice.CBuffer.write_int16 buffer (int_of_opcode op);
-    Alice.CBuffer.write_int32 buffer arg0;
-    Alice.CBuffer.write_int32 buffer arg1;
-    Alice.CBuffer.write_int32 buffer arg2;
+    CBuffer.write_int16 buffer (int_of_opcode op);
+    CBuffer.write_int32 buffer arg0;
+    CBuffer.write_int32 buffer arg1;
+    CBuffer.write_int32 buffer arg2;
     current_address <- current_address + 14
 
   method write_address_at dst addr =
-    Alice.CBuffer.write_int32_at buffer (dst - start_address) addr
+    CBuffer.write_int32_at buffer (dst - start_address) addr
 
   method write_buffer =
     if current_address > start_address then
       begin
-        Alice.Ain.append_bytecode ain buffer;
-        Alice.CBuffer.clear buffer;
+        Ain.append_bytecode ain buffer;
+        CBuffer.clear buffer;
         start_address <- current_address
       end
 
@@ -238,26 +238,26 @@ class jaf_compiler ain = object (self)
     | None   -> compiler_bug "get_local outside of function" None
 
   method compile_lock_peek =
-    if Alice.Ain.version_lt ain 6 0 then
+    if Ain.version_lt ain (6, 0) then
       begin
         self#write_instruction1 CALLSYS (int_of_syscall LockPeek);
         self#write_instruction0 POP
       end
 
   method compile_unlock_peek =
-    if Alice.Ain.version_lt ain 6 0 then
+    if Ain.version_lt ain (6, 0) then
       begin
         self#write_instruction1 CALLSYS (int_of_syscall UnlockPeek);
         self#write_instruction0 POP
       end
 
-  method compile_delete_var (v:Alice.Ain.Variable.t) =
+  method compile_delete_var (v:Ain.Variable.t) =
     match v.value_type.data with
     | Struct _ ->
         self#compile_local_delete v.index
     | Array t ->
-        if Alice.Ain.version_gte ain 11 0 then begin
-          let type_no = Alice.Ain.Type.to_c_data ain t in
+        if Ain.version_gte ain (11, 0) then begin
+          let type_no = Ain.Type.int_of_data_type (Ain.version ain) t in
           self#compile_local_ref v.index;
           self#write_instruction0 REF;
           self#compile_CALLHLL "Array" "Free" type_no (ASTStatement {node=EmptyStatement; delete_vars=[]})
@@ -270,14 +270,14 @@ class jaf_compiler ain = object (self)
   (** Emit the code to put the value of a variable onto the stack (including
       member variables and array elements). Assumes a page + page-index is
       already on the stack. *)
-  method compile_dereference (t:Alice.Ain.Type.t) =
+  method compile_dereference (t:Ain.Type.t) =
     match t.data with
     | Int | Float | Bool | LongInt | FuncType _ ->
         if t.is_ref then
           self#write_instruction0 REFREF;
         self#write_instruction0 REF
     | String ->
-        if Alice.Ain.version_gte ain 11 0 then
+        if Ain.version_gte ain (11, 0) then
           begin
             self#write_instruction0 REF;
             self#write_instruction0 A_REF
@@ -288,7 +288,7 @@ class jaf_compiler ain = object (self)
         self#write_instruction0 REF;
         self#write_instruction0 A_REF
     | Struct no ->
-        if Alice.Ain.version_gte ain 11 0 then
+        if Ain.version_gte ain (11, 0) then
           begin
             self#write_instruction0 REF;
             self#write_instruction0 A_REF
@@ -298,8 +298,8 @@ class jaf_compiler ain = object (self)
     | Delegate _ ->
         self#write_instruction0 REF;
         self#write_instruction0 DG_COPY
-    | Void | IMainSystem | HLLParam | Wrap _ | Option _ | Unknown87 _ | IFace
-    | Enum2 _ | Enum _ | HLLFunc | IFaceWrap | Function _ | Method _ ->
+    | Void | IMainSystem | HLLFunc2 | HLLParam | Wrap _ | Option _ | Unknown87 _ | IFace _
+    | Enum2 _ | Enum _ | HLLFunc | Unknown98 | IFaceWrap _ | Function _ | Method _ ->
         compiler_bug "dereference not supported for type" None
 
   method compile_local_ref i =
@@ -313,7 +313,7 @@ class jaf_compiler ain = object (self)
   method compile_identifier_ref id_type =
     match id_type with
     | LocalVariable i -> self#compile_local_ref (self#get_local i).index
-    | GlobalVariable i -> self#compile_global_ref (Alice.Ain.get_global_by_index ain i).index
+    | GlobalVariable i -> self#compile_global_ref (Ain.get_global_by_index ain i).index
     | _ -> compiler_bug "Invalid identifier type" None
 
   method compile_variable_ref (e:expression) =
@@ -345,13 +345,13 @@ class jaf_compiler ain = object (self)
       element) onto the stack, e.g. to prepare for an assignment or to pass
       a variable by reference. *)
   method compile_lvalue (e : expression) =
-    let compile_lvalue_after (t : Alice.Ain.Type.t) =
+    let compile_lvalue_after (t : Ain.Type.t) =
       if t.is_ref then
         match t.data with
         | Int | Float | Bool | LongInt ->
             self#write_instruction0 REFREF
         | String ->
-            if not (Alice.Ain.version_gte ain 14 0) then
+            if not (Ain.version_gte ain (14, 0)) then
               self#write_instruction0 REF
         | Array _ | Struct _ ->
             self#write_instruction0 REF
@@ -359,7 +359,7 @@ class jaf_compiler ain = object (self)
       else
         match t.data with
         | String ->
-            if not (Alice.Ain.version_gte ain 14 0) then
+            if not (Ain.version_gte ain (14, 0)) then
               self#write_instruction0 REF
         | Array _ | Struct _ | Delegate _ ->
             self#write_instruction0 REF
@@ -371,7 +371,7 @@ class jaf_compiler ain = object (self)
         self#compile_local_ref v.index;
         compile_lvalue_after v.value_type
     | Ident (_, Some (GlobalVariable i)) ->
-        let v = Alice.Ain.get_global_by_index ain i in
+        let v = Ain.get_global_by_index ain i in
         self#compile_global_ref v.index;
         compile_lvalue_after v.value_type
     | Member (obj, _, Some (ClassVariable (_, member_no))) ->
@@ -383,7 +383,7 @@ class jaf_compiler ain = object (self)
         self#compile_expression index;
         compile_lvalue_after (Option.value_exn e.valuetype)
     | New (Struct(_, s_no), args, Some var_no) ->
-        let s = Alice.Ain.Struct.of_int ain s_no in
+        let s = Ain.get_struct_by_index ain s_no in
         (* delete dummy variable *)
         self#write_instruction0 PUSHLOCALPAGE;
         self#write_instruction1 PUSH var_no;
@@ -394,9 +394,9 @@ class jaf_compiler ain = object (self)
         self#write_instruction1 PUSH var_no;
         (* call constructor (via NEW) *)
         if s.constructor >= 0 then
-          self#compile_function_arguments args (Alice.Ain.Function.of_int ain s.constructor);
+          self#compile_function_arguments args (Ain.get_function_by_index ain s.constructor);
         self#compile_lock_peek;
-        if Alice.Ain.version_gte ain 11 0 then
+        if Ain.version_gte ain (11, 0) then
           self#write_instruction2 NEW s_no s.constructor
         else
           self#write_instruction1 NEW s_no;
@@ -409,14 +409,14 @@ class jaf_compiler ain = object (self)
         compiler_bug ("invalid lvalue: " ^ (expr_to_string e)) (Some (ASTExpression e))
 
   (** Emit the code to pop a value off the stack. *)
-  method compile_pop (t:Alice.Ain.Type.t) =
+  method compile_pop (t:Ain.Type.t) =
     match t.data with
     | Void ->
         ()
     | Int | Float | Bool | LongInt ->
         self#write_instruction0 POP
     | String ->
-        if Alice.Ain.version_gte ain 11 0 then
+        if Ain.version_gte ain (11, 0) then
           self#write_instruction0 DELETE
         else
           self#write_instruction0 S_POP
@@ -425,21 +425,23 @@ class jaf_compiler ain = object (self)
     | Struct _
     | IMainSystem
     | FuncType _
+    | HLLFunc2
     | HLLParam
     | Array _
     | Wrap _
     | Option _
     | Unknown87 _
-    | IFace
+    | IFace _
     | Enum2 _
     | Enum _
     | HLLFunc
-    | IFaceWrap
+    | Unknown98
+    | IFaceWrap _
     | Function _
     | Method _ ->
         compiler_bug "compile_pop: unsupported value type" None
 
-  method compile_argument (expr:expression) (t:Alice.Ain.Type.t) =
+  method compile_argument (expr:expression) (t:Ain.Type.t) =
     match t with
     | { data=Method _; _ } ->
         (* XXX: for delegate builtins *)
@@ -449,7 +451,7 @@ class jaf_compiler ain = object (self)
         (* XXX: in 14+ there is a distinction between a string lvalue and a
                 reference argument (string lvalue is a page+index, reference
                 argument is just the string page) *)
-        if Alice.Ain.version_gte ain 14 0 then
+        if Ain.version_gte ain (14, 0) then
           begin match (Option.value_exn expr.valuetype).data with
           | String -> self#write_instruction1 X_REF 1
           | _ -> ()
@@ -460,17 +462,17 @@ class jaf_compiler ain = object (self)
     | _ ->
         self#compile_expression expr
 
-  method compile_function_arguments args (f:Alice.Ain.Function.t) =
-    let compile_arg arg (var:Alice.Ain.Variable.t) =
+  method compile_function_arguments args (f:Ain.Function.t) =
+    let compile_arg arg (var:Ain.Variable.t) =
       self#compile_argument arg var.value_type
     in
-    List.iter2_exn args (Alice.Ain.Function.logical_parameters f) ~f:compile_arg
+    List.iter2_exn args (Ain.Function.logical_parameters f) ~f:compile_arg
 
   (** Emit the code to call a method. The object upon which the method is to be
       called should already be on the stack before this code is executed. *)
   method compile_method_call args method_no =
-    let f = Alice.Ain.get_function_by_index ain method_no in
-    if Alice.Ain.version_gte ain 11 0 then
+    let f = Ain.get_function_by_index ain method_no in
+    if Ain.version_gte ain (11, 0) then
       begin
         self#write_instruction1 PUSH method_no;
         self#compile_function_arguments args f;
@@ -498,7 +500,7 @@ class jaf_compiler ain = object (self)
         else
           self#write_instruction1 PUSH (int_of_char (String.get s 0))
     | ConstString s ->
-        let no = Alice.Ain.add_string ain s in
+        let no = Ain.add_string ain s in
         self#write_instruction1 S_PUSH no
     | Ident (_, Some (LocalVariable i)) ->
         self#write_instruction0 PUSHLOCALPAGE;
@@ -507,7 +509,7 @@ class jaf_compiler ain = object (self)
     | Ident (_, Some (GlobalVariable i)) ->
         self#write_instruction0 PUSHGLOBALPAGE;
         self#write_instruction1 PUSH i;
-        self#compile_dereference (Alice.Ain.get_global_by_index ain i).value_type
+        self#compile_dereference (Ain.get_global_by_index ain i).value_type
     | Ident (_, Some GlobalConstant) ->
         compiler_bug "global constant not eliminated" (Some(ASTExpression expr))
     | Ident (_, Some (FunctionName _)) ->
@@ -546,7 +548,7 @@ class jaf_compiler ain = object (self)
         self#write_instruction0 DEC
     | Unary (PostInc, e) ->
         self#compile_lvalue e;
-        if Alice.Ain.version_gte ain 14 0 then
+        if Ain.version_gte ain (14, 0) then
           begin
             self#write_instruction1 X_DUP 2;
             self#write_instruction1 X_REF 1;
@@ -563,7 +565,7 @@ class jaf_compiler ain = object (self)
           end
     | Unary (PostDec, e) ->
         self#compile_lvalue e;
-        if Alice.Ain.version_gte ain 14 0 then
+        if Ain.version_gte ain (14, 0) then
           begin
             self#write_instruction1 X_DUP 2;
             self#write_instruction1 X_REF 1;
@@ -648,7 +650,7 @@ class jaf_compiler ain = object (self)
         | (String, LTE)    -> self#write_instruction0 S_LTE
         | (String, GTE)    -> self#write_instruction0 S_GTE
         | (String, Modulo) ->
-            let int_of_t (t : Alice.Ain.Type.data) =
+            let int_of_t (t : Ain.Type.data) =
               match t with
               | Int    -> 2
               | Float  -> 3
@@ -736,7 +738,7 @@ class jaf_compiler ain = object (self)
         self#compile_expression index;
         self#compile_dereference (Option.value_exn expr.valuetype)
     | Member (e, _, Some (ClassVariable (struct_no, member_no))) ->
-        let struct_type = Alice.Ain.get_struct_by_index ain struct_no in
+        let struct_type = Ain.get_struct_by_index ain struct_no in
         self#compile_lvalue e;
         self#write_instruction1 PUSH member_no;
         self#compile_dereference (List.nth_exn struct_type.members member_no).value_type
@@ -752,7 +754,7 @@ class jaf_compiler ain = object (self)
         compiler_bug "member expression has no member_type" (Some(ASTExpression expr))
     (* regular function call *)
     | Call (_, args, Some FunctionCall function_no) ->
-        let f = Alice.Ain.get_function_by_index ain function_no in
+        let f = Ain.get_function_by_index ain function_no in
         self#compile_function_arguments args f;
         self#write_instruction1 CALLFUNC function_no
     (* method call *)
@@ -761,15 +763,15 @@ class jaf_compiler ain = object (self)
         self#compile_method_call args method_no
     (* HLL function call *)
     | Call (_, args, Some HLLCall (lib_no, fun_no, type_param)) ->
-        let f = Alice.Ain.function_of_hll_function_index ain lib_no fun_no in
+        let f = Ain.function_of_hll_function_index ain lib_no fun_no in
         self#compile_function_arguments args f;
-        if Alice.Ain.version_gte ain 11 0 then
+        if Ain.version_gte ain (11, 0) then
           self#write_instruction3 CALLHLL lib_no fun_no type_param
         else
           self#write_instruction2 CALLHLL lib_no fun_no
     (* system call *)
     | Call (_, args, Some SystemCall sys) ->
-        if Alice.Ain.version_gte ain 11 0 then
+        if Ain.version_gte ain (11, 0) then
           compiler_bug "attempted to compile old-style system call in ain v11+" (Some(ASTExpression expr))
         else
           begin
@@ -779,7 +781,7 @@ class jaf_compiler ain = object (self)
           end
     (* built-in call *)
     | Call ({node=Member(e, _, _); _}, args, Some BuiltinCall builtin) ->
-        if Alice.Ain.version_gte ain 11 0 then
+        if Ain.version_gte ain (11, 0) then
           compiler_bug "tried to compile old-style built-in call in ain v11+" (Some(ASTExpression expr));
         let f = function_of_builtin builtin in
         begin match builtin with
@@ -864,7 +866,7 @@ class jaf_compiler ain = object (self)
         end
     (* functype call *)
     | Call (e, args, Some FuncTypeCall no) ->
-        let compile_arg (arg:expression) (var:Alice.Ain.Variable.t) =
+        let compile_arg (arg:expression) (var:Ain.Variable.t) =
           self#compile_argument arg var.value_type;
           if var.value_type.is_ref then
             begin
@@ -875,13 +877,13 @@ class jaf_compiler ain = object (self)
           else
             self#write_instruction0 SWAP
         in
-        let f = Alice.Ain.FunctionType.of_int ain no in
+        let f = Ain.get_functype_by_index ain no in
         self#compile_expression e;
-        List.iter2_exn args (Alice.Ain.FunctionType.logical_parameters f) ~f:compile_arg;
+        List.iter2_exn args (Ain.FunctionType.logical_parameters f) ~f:compile_arg;
         self#write_instruction1 PUSH no;
         self#write_instruction0 CALLFUNC2
     | Call (e, args, Some DelegateCall no) ->
-        let f = Alice.Ain.function_of_delegate_index ain no in
+        let f = Ain.function_of_delegate_index ain no in
         self#compile_lvalue e;
         self#compile_function_arguments args f;
         self#write_instruction1 DG_CALLBEGIN no;
@@ -1029,7 +1031,7 @@ class jaf_compiler ain = object (self)
         end;
         self#write_instruction0 RETURN
     | MessageCall (msg, _, fno) ->
-        let msg_no = Alice.Ain.add_message ain msg in
+        let msg_no = Ain.add_message ain msg in
         self#write_instruction1 MSG msg_no;
         begin match fno with
         | Some no -> self#write_instruction1 CALLFUNC no
@@ -1110,7 +1112,7 @@ class jaf_compiler ain = object (self)
               self#write_instruction0 POP
           | String ->
               self#compile_local_ref v.index;
-              if Alice.Ain.version_gte ain 14 0 then
+              if Ain.version_gte ain (14, 0) then
                 begin
                   self#write_instruction1 X_DUP 2;
                   self#write_instruction1 X_REF 1;
@@ -1130,7 +1132,7 @@ class jaf_compiler ain = object (self)
                   | None -> self#write_instruction1 S_PUSH 0
                   end;
                   self#write_instruction0 S_ASSIGN;
-                  if Alice.Ain.version_gte ain 11 0 then
+                  if Ain.version_gte ain (11, 0) then
                     self#write_instruction0 DELETE
                   else
                     self#write_instruction0 S_POP
@@ -1142,7 +1144,7 @@ class jaf_compiler ain = object (self)
           | Array t ->
               let has_dims = (List.length decl.array_dim) > 0 in
               self#compile_local_ref v.index;
-              if Alice.Ain.version_gte ain 14 0 then
+              if Ain.version_gte ain (14, 0) then
                 begin
                   self#write_instruction1 X_DUP 2;
                   self#write_instruction1 X_REF 1;
@@ -1165,7 +1167,7 @@ class jaf_compiler ain = object (self)
                         end
                   end
                 end
-              else if Alice.Ain.version_gte ain 11 0 then
+              else if Ain.version_gte ain (11, 0) then
                 begin
                   self#write_instruction0 REF;
                   begin match decl.initval with
@@ -1174,7 +1176,7 @@ class jaf_compiler ain = object (self)
                       self#write_instruction0 X_SET;
                       self#write_instruction0 DELETE
                   | None ->
-                      let type_no = Alice.Ain.Type.to_c_data ain t in
+                      let type_no = Ain.Type.int_of_data_type (Ain.version ain) t in
                       if has_dims then
                         begin
                           self#write_instruction0 DUP;
@@ -1209,8 +1211,8 @@ class jaf_compiler ain = object (self)
               | None ->
                   self#write_instruction0 DG_CLEAR
               end
-          | Void | IMainSystem | HLLParam | Wrap _ | Option _ | Unknown87 _ | IFace
-          | Enum2 _ | Enum _ | HLLFunc | IFaceWrap | Function _ | Method _ ->
+          | Void | IMainSystem | HLLFunc2 | HLLParam | Wrap _ | Option _ | Unknown87 _ | IFace _
+          | Enum2 _ | Enum _ | HLLFunc | Unknown98 | IFaceWrap _ | Function _ | Method _ ->
               compile_error "Unimplemented variable type" (ASTVariable decl)
           end
 
@@ -1225,7 +1227,7 @@ class jaf_compiler ain = object (self)
     self#end_scope
 
   (** Emit the code for a default return value. *)
-  method compile_default_return (t:Alice.Ain.Type.t) decl =
+  method compile_default_return (t:Ain.Type.t) decl =
     if t.is_ref then
       match t.data with
       | String | Struct _ | Array _ ->
@@ -1250,20 +1252,19 @@ class jaf_compiler ain = object (self)
   (** Emit the code for a function. *)
   method compile_function (decl:fundecl) =
     let index = Option.value_exn decl.index in
-    let func = Alice.Ain.get_function_by_index ain index in
-    func.address <- current_address + 6;
+    let func = { (Ain.get_function_by_index ain index) with address = current_address + 6 } in
     current_function <- Some func;
     self#write_instruction1 FUNC index;
     self#compile_block decl.body;
     self#compile_default_return func.return_type (ASTDeclaration(Function decl));
     self#write_instruction0 RETURN;
     self#write_instruction1 ENDFUNC index;
-    Alice.Ain.Function.write ain func;
+    Ain.write_function ain func;
     current_function <- None
 
   (** Compile a list of declarations. *)
   method compile (decls:declaration list) =
-    start_address <- Alice.Ain.code_size ain;
+    start_address <- Ain.code_size ain;
     current_address <- start_address;
     let compile_decl = function
       | Jaf.Function f ->

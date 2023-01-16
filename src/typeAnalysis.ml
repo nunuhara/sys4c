@@ -18,7 +18,7 @@ open Core
 open Jaf
 open CompileError
 
-let rec type_equal (expected:Alice.Ain.Type.data) (actual:Alice.Ain.Type.data) =
+let rec type_equal (expected:Ain.Type.data) (actual:Ain.Type.data) =
   match (expected, actual) with
   | (Void, _) -> true (* XXX: used for type-generic built-ins (e.g. Array.PushBack) *)
   | (Int, (Int|Bool|LongInt)) -> true
@@ -30,16 +30,18 @@ let rec type_equal (expected:Alice.Ain.Type.data) (actual:Alice.Ain.Type.data) =
   | (IMainSystem, IMainSystem) -> true
   | (FuncType a, FuncType b) -> a = b
   | (Delegate a, Delegate b) -> a = b
+  | (HLLFunc2, HLLFunc2) -> true
   | (HLLParam, HLLParam) -> true
   | (Array a, Array b) -> type_equal a.data b.data
   | (Wrap a, Wrap b) -> type_equal a.data b.data
   | (Option a, Option b) -> type_equal a.data b.data
   | (Unknown87 a, Unknown87 b) -> type_equal a.data b.data
-  | (IFace, IFace) -> true
+  | (IFace a, IFace b) -> a = b
   | (Enum2 a, Enum2 b) -> a = b
   | (Enum a, Enum b) -> a = b
   | (HLLFunc, HLLFunc) -> true
-  | (IFaceWrap, IFaceWrap) -> true
+  | (Unknown98, Unknown98) -> true
+  | (IFaceWrap a, IFaceWrap b) -> a = b
   | (Function _, Function _) -> true
   | (Method _, Method _) -> true
   | (Int, _)
@@ -51,20 +53,22 @@ let rec type_equal (expected:Alice.Ain.Type.data) (actual:Alice.Ain.Type.data) =
   | (IMainSystem, _)
   | (FuncType _, _)
   | (Delegate _, _)
+  | (HLLFunc2, _)
   | (HLLParam, _)
   | (Array _, _)
   | (Wrap _, _)
   | (Option _, _)
   | (Unknown87 _, _)
-  | (IFace, _)
+  | (IFace _, _)
   | (Enum2 _, _)
   | (Enum _, _)
   | (HLLFunc, _)
-  | (IFaceWrap, _)
+  | (Unknown98, _)
+  | (IFaceWrap _, _)
   | (Function _, _)
   | (Method _, _) -> false
 
-let type_castable (dst:data_type) (src:Alice.Ain.Type.data) =
+let type_castable (dst:data_type) (src:Ain.Type.data) =
   match (dst, src) with
   (* FIXME: cast to void should be allowed *)
   | (Void, _) -> compiler_bug "type checker cast to void type" None
@@ -97,7 +101,7 @@ class type_analyze_visitor ctx = object (self)
   (* an lvalue is an expression which denotes a location that can be assigned to/referenced *)
   method check_lvalue (e:expression) (parent:ast_node) =
     let check_lvalue_type = function
-      | Alice.Ain.Type.Function (_) -> not_an_lvalue_error e parent
+      | Ain.Type.Function (_) -> not_an_lvalue_error e parent
       | _ -> ()
     in
     match e.node with
@@ -109,16 +113,16 @@ class type_analyze_visitor ctx = object (self)
 
   method check_delegate_compatible parent dg_i expr =
     match (Option.value_exn expr.valuetype) with
-    | { data=Alice.Ain.Type.Method (f_i); is_ref=true } ->
-        let dg = Alice.Ain.FunctionType.delegate_of_int ctx.ain dg_i in
-        let f = Alice.Ain.Function.of_int ctx.ain f_i in
-        if not (Alice.Ain.FunctionType.function_compatible dg f) then
-          data_type_error (Alice.Ain.Type.Delegate (dg_i)) (Some expr) parent
-    | { data=Alice.Ain.Type.Delegate no; _ } ->
+    | { data=Ain.Type.Method (f_i); is_ref=true } ->
+        let dg = Ain.get_delegate_by_index ctx.ain dg_i in
+        let f = Ain.get_function_by_index ctx.ain f_i in
+        if not (Ain.FunctionType.function_compatible dg f) then
+          data_type_error (Ain.Type.Delegate (dg_i)) (Some expr) parent
+    | { data=Ain.Type.Delegate no; _ } ->
         if not (phys_equal dg_i no) then
-          data_type_error (Alice.Ain.Type.Delegate (dg_i)) (Some expr) parent
+          data_type_error (Ain.Type.Delegate (dg_i)) (Some expr) parent
     | _ ->
-        ref_type_error (Alice.Ain.Type.Method (-1)) (Some expr) parent
+        ref_type_error (Ain.Type.Method (-1)) (Some expr) parent
 
   method check_assign parent t rhs =
     match t with
@@ -128,17 +132,17 @@ class type_analyze_visitor ctx = object (self)
      * 'ref function'. This is then converted into the declared
      * functype of the variable (if the prototypes match).
      *)
-    | Alice.Ain.Type.FuncType (ft_i) ->
+    | Ain.Type.FuncType (ft_i) ->
         begin match (Option.value_exn rhs.valuetype) with
-        | { data=Alice.Ain.Type.Function (f_i); is_ref=true } ->
-            let ft = Alice.Ain.FunctionType.of_int ctx.ain ft_i in
-            let f = Alice.Ain.Function.of_int ctx.ain f_i in
-            if not (Alice.Ain.FunctionType.function_compatible ft f) then
-              data_type_error (Alice.Ain.Type.FuncType (ft_i)) (Some rhs) parent
+        | { data=Ain.Type.Function (f_i); is_ref=true } ->
+            let ft = Ain.get_functype_by_index ctx.ain ft_i in
+            let f = Ain.get_function_by_index ctx.ain f_i in
+            if not (Ain.FunctionType.function_compatible ft f) then
+              data_type_error (Ain.Type.FuncType (ft_i)) (Some rhs) parent
         | _ ->
-            ref_type_error (Alice.Ain.Type.Function (-1)) (Some rhs) parent
+            ref_type_error (Ain.Type.Function (-1)) (Some rhs) parent
         end
-    | Alice.Ain.Type.Delegate (dg_i) ->
+    | Ain.Type.Delegate (dg_i) ->
         self#check_delegate_compatible parent dg_i rhs
     | _ ->
         type_check parent t rhs
@@ -151,13 +155,13 @@ class type_analyze_visitor ctx = object (self)
     let check_struct = type_check_struct (ASTExpression expr) in
     let check_expr a b = check (Option.value_exn a.valuetype).data b in
     (* check function call arguments *)
-    let check_call (f:Alice.Ain.Function.t) args =
-      let params = Alice.Ain.Function.logical_parameters f in
+    let check_call (f:Ain.Function.t) args =
+      let params = Ain.Function.logical_parameters f in
       let nr_params = List.length params in
       if not (nr_params = (List.length args)) then
         arity_error f args (ASTExpression expr)
       else if nr_params > 0 then begin
-        let check_arg a (v:Alice.Ain.Variable.t) = check v.value_type.data a in
+        let check_arg a (v:Ain.Variable.t) = check v.value_type.data a in
         List.iter2_exn args params ~f:check_arg
       end
     in
@@ -166,13 +170,13 @@ class type_analyze_visitor ctx = object (self)
     in
     match expr.node with
     | ConstInt (_) ->
-        expr.valuetype <- Some (Alice.Ain.Type.make Int)
+        expr.valuetype <- Some (Ain.Type.make Int)
     | ConstFloat (_) ->
-        expr.valuetype <- Some (Alice.Ain.Type.make Float)
+        expr.valuetype <- Some (Ain.Type.make Float)
     | ConstChar (_) ->
-        expr.valuetype <- Some (Alice.Ain.Type.make Int)
+        expr.valuetype <- Some (Ain.Type.make Int)
     | ConstString (_) ->
-        expr.valuetype <- Some (Alice.Ain.Type.make String)
+        expr.valuetype <- Some (Ain.Type.make String)
     | Ident (name, _) ->
         begin match environment#resolve name with
         | ResolvedLocal v ->
@@ -186,13 +190,13 @@ class type_analyze_visitor ctx = object (self)
             expr.valuetype <- Some g.value_type
         | ResolvedFunction i ->
             expr.node <- Ident (name, Some (FunctionName (i)));
-            expr.valuetype <- Some (Alice.Ain.Type.make (Function i))
+            expr.valuetype <- Some (Ain.Type.make (Function i))
         | ResolvedLibrary i ->
             expr.node <- Ident (name, Some (HLLName i));
-            expr.valuetype <- Some (Alice.Ain.Type.make Void)
+            expr.valuetype <- Some (Ain.Type.make Void)
         | ResolvedSystem ->
             expr.node <- Ident ("system", Some System);
-            expr.valuetype <- Some (Alice.Ain.Type.make Void)
+            expr.valuetype <- Some (Ain.Type.make Void)
         | UnresolvedName ->
             undefined_variable_error name (ASTExpression expr)
         end
@@ -207,9 +211,9 @@ class type_analyze_visitor ctx = object (self)
         | AddrOf ->
             begin match (Option.value_exn e.valuetype).data with
             | Function i ->
-                expr.valuetype <- Some (Alice.Ain.Type.make ~is_ref:true (Function i))
+                expr.valuetype <- Some (Ain.Type.make ~is_ref:true (Function i))
             | Method i ->
-                expr.valuetype <- Some (Alice.Ain.Type.make ~is_ref:true (Method i))
+                expr.valuetype <- Some (Ain.Type.make ~is_ref:true (Method i))
             | _ ->
                 data_type_error (Function (-1)) (Some e) (ASTExpression expr)
             end
@@ -261,7 +265,7 @@ class type_analyze_visitor ctx = object (self)
                 (* TODO: allow coercion *)
                 check_expr a b
             end;
-            expr.valuetype <- Some (Alice.Ain.Type.make Int)
+            expr.valuetype <- Some (Ain.Type.make Int)
         end;
     | Assign (op, lhs, rhs) ->
         self#check_lvalue lhs (ASTExpression expr);
@@ -284,7 +288,7 @@ class type_analyze_visitor ctx = object (self)
         (* XXX: Nothing is left on stack after assigning method to delegate *)
         begin match lhs_type, rhs_type with
         | Delegate _, Method _ ->
-            expr.valuetype <- Some (Alice.Ain.Type.make Void)
+            expr.valuetype <- Some (Ain.Type.make Void)
         | _ ->
             expr.valuetype <- lhs.valuetype
         end
@@ -313,17 +317,17 @@ class type_analyze_visitor ctx = object (self)
         begin match Bytecode.syscall_of_string syscall_name with
         | Some sys ->
             expr.node <- Member(e, syscall_name, Some (SystemFunction sys));
-            expr.valuetype <- Some (Alice.Ain.Type.make (Function 0))
+            expr.valuetype <- Some (Ain.Type.make (Function 0))
         | None ->
             (* TODO: separate error type for this? *)
             undefined_variable_error ("system." ^ syscall_name) (ASTExpression expr)
         end
     (* HLL function *)
     | Member ({node=Ident(lib_name, Some (HLLName lib_no)); _} as e, fun_name, _) ->
-        begin match Alice.Ain.get_library_function_index ctx.ain lib_no fun_name with
+        begin match Ain.get_library_function_index ctx.ain lib_no fun_name with
         | Some fun_no ->
             expr.node <- Member(e, fun_name, Some (HLLFunction (lib_no, fun_no)));
-            expr.valuetype <- Some (Alice.Ain.Type.make (Function 0))
+            expr.valuetype <- Some (Ain.Type.make (Function 0))
         | None ->
             (* TODO: separate error type for this? *)
             undefined_variable_error (lib_name ^ "." ^ fun_name) (ASTExpression(expr))
@@ -333,15 +337,15 @@ class type_analyze_visitor ctx = object (self)
         begin match Bytecode.builtin_of_string t name with
         | Some builtin ->
             expr.node <- Member (e, name, Some (BuiltinMethod builtin));
-            expr.valuetype <- Some (Alice.Ain.Type.make (Function 0))
+            expr.valuetype <- Some (Ain.Type.make (Function 0))
         | None ->
             (* TODO: separate error type for this? *)
-            undefined_variable_error ((Alice.Ain.Type.data_to_string t) ^ name) (ASTExpression(expr))
+            undefined_variable_error ((Ain.Type.data_to_string t) ^ name) (ASTExpression(expr))
         end
     (* member variable OR method *)
     | Member (obj, member_name, _) ->
-        let struc = Alice.Ain.get_struct_by_index ctx.ain (check_struct obj) in
-        let check_member _ (m : Alice.Ain.Variable.t) =
+        let struc = Ain.get_struct_by_index ctx.ain (check_struct obj) in
+        let check_member _ (m : Ain.Variable.t) =
           String.equal m.name member_name
         in
         begin match List.findi struc.members ~f:check_member with
@@ -350,10 +354,10 @@ class type_analyze_visitor ctx = object (self)
             expr.valuetype <- Some member.value_type
         | None ->
             let fun_name = struc.name ^ "@" ^ member_name in
-            begin match Alice.Ain.get_function ctx.ain fun_name with
+            begin match Ain.get_function ctx.ain fun_name with
             | Some f ->
                 expr.node <- Member (obj, member_name, Some (ClassMethod (struc.index, f.index)));
-                expr.valuetype <- Some (Alice.Ain.Type.make (Method f.index))
+                expr.valuetype <- Some (Ain.Type.make (Method f.index))
             | None ->
                 (* TODO: separate error type for this? *)
                 undefined_variable_error (struc.name ^ "." ^ member_name) (ASTExpression expr)
@@ -361,19 +365,19 @@ class type_analyze_visitor ctx = object (self)
         end
     (* regular function call *)
     | Call ({node=Ident(_, Some FunctionName fno); _} as e, args, _) ->
-        let f = Alice.Ain.Function.of_int ctx.ain fno in
+        let f = Ain.get_function_by_index ctx.ain fno in
         check_call f args;
         expr.node <- Call (e, args, Some (FunctionCall fno));
         expr.valuetype <- Some f.return_type
     (* method call *)
     | Call ({node=Member(_, _, Some (ClassMethod(sno, mno))); _} as e, args, _) ->
-        let f = Alice.Ain.Function.of_int ctx.ain mno in
+        let f = Ain.get_function_by_index ctx.ain mno in
         check_call f args;
         expr.node <- Call (e, args, Some (MethodCall(sno, mno)));
         expr.valuetype <- Some f.return_type
     (* HLL call *)
     | Call ({node=Member(_, _, Some (HLLFunction(lib_no, fun_no))); _} as e, args, _) ->
-        let f = Alice.Ain.function_of_hll_function_index ctx.ain lib_no fun_no in
+        let f = Ain.function_of_hll_function_index ctx.ain lib_no fun_no in
         check_call f args;
         expr.node <- Call (e, args, Some (HLLCall(lib_no, fun_no, -1)));
         expr.valuetype <- Some f.return_type
@@ -386,7 +390,7 @@ class type_analyze_visitor ctx = object (self)
     (* built-in call *)
     | Call ({node=Member(_, _, Some(BuiltinMethod builtin)); _} as e, args, _) ->
         (* TODO: rewrite to HLL call for 11+ (?) *)
-        if Alice.Ain.version_gte ctx.ain 11 0 then
+        if Ain.version_gte ctx.ain (11, 0) then
           compile_error "ain v11+ built-ins not implemented" (ASTExpression expr);
         let f = Bytecode.function_of_builtin builtin in
         (* TODO: properly check type-generic arguments based on object type *)
@@ -397,29 +401,29 @@ class type_analyze_visitor ctx = object (self)
     | Call (e, args, _) ->
         begin match (Option.value_exn e.valuetype).data with
         | FuncType no ->
-            let f = Alice.Ain.function_of_functype_index ctx.ain no in
+            let f = Ain.function_of_functype_index ctx.ain no in
             check_call f args;
             expr.node <- Call (e, args, Some (FuncTypeCall no));
             expr.valuetype <- Some f.return_type
         | Delegate no ->
-            let f = Alice.Ain.function_of_delegate_index ctx.ain no in
+            let f = Ain.function_of_delegate_index ctx.ain no in
             check_call f args;
             expr.node <- Call (e, args, Some (DelegateCall no));
             expr.valuetype <- Some f.return_type
         | _ ->
-            data_type_error (Alice.Ain.Type.FuncType (-1)) (Some e) (ASTExpression expr)
+            data_type_error (Ain.Type.FuncType (-1)) (Some e) (ASTExpression expr)
         end
     | New (t, args, _) ->
         begin match t with
         | Struct (_, i) ->
             (* TODO: look up the correct constructor for given arguments *)
-            begin match (Alice.Ain.Struct.of_int ctx.ain i).constructor with
+            begin match (Ain.get_struct_by_index ctx.ain i).constructor with
             | -1 ->
                 if not ((List.length args) = 0) then
                   (* TODO: signal error properly here *)
                   compile_error "Arguments provided to default constructor" (ASTExpression expr);
             | no ->
-                let ctor = Alice.Ain.Function.of_int ctx.ain no in
+                let ctor = Ain.get_function_by_index ctx.ain no in
                 check_call ctor args;
             end;
             set_valuetype { data=t; qualifier=None }
@@ -428,7 +432,7 @@ class type_analyze_visitor ctx = object (self)
     | This ->
         match environment#current_class with
         | Some i ->
-            expr.valuetype <- Some (Alice.Ain.Type.make (Struct i))
+            expr.valuetype <- Some (Ain.Type.make (Struct i))
         | None ->
             (* TODO: separate error type for this? *)
             undefined_variable_error "this" (ASTExpression expr)
@@ -477,7 +481,7 @@ class type_analyze_visitor ctx = object (self)
     | MessageCall (msg, f_name, _) ->
         begin match f_name with
         | Some name ->
-          begin match Alice.Ain.get_function ctx.ain name with
+          begin match Ain.get_function ctx.ain name with
           | Some f ->
               if f.nr_args > 0 then
                 arity_error f [] (ASTStatement stmt);
@@ -519,7 +523,7 @@ class type_analyze_visitor ctx = object (self)
     let rank = calculate_array_rank var.type_spec in
     let nr_dims = List.length var.array_dim in
     (* Only one array dimension may be specified in ain v11+ *)
-    if (nr_dims > 1) && (Alice.Ain.version_gte ctx.ain 11 0) then
+    if (nr_dims > 1) && (Ain.version_gte ctx.ain (11, 0)) then
       compile_error "Multiple array dimensions specified for ain v11+" (ASTVariable var);
     (* Check that there is no initializer if array has explicit dimensions *)
     if (nr_dims > 0) && (Option.is_some var.initval) then
@@ -556,10 +560,10 @@ class type_analyze_visitor ctx = object (self)
     (* Equality function for function declarations. Two function declarations
        are considered equal if they have the same number and type of parameters,
        and the same return type. *)
-    let fundecl_equal (a:Alice.Ain.Function.t) (b:Alice.Ain.Function.t) =
+    let fundecl_equal (a:Ain.Function.t) (b:Ain.Function.t) =
       (* extract parameter types from variable list *)
-      let take_arg_types n (vars:Alice.Ain.Variable.t list) =
-        let rec take_arg_types' n (vars:Alice.Ain.Variable.t list) result =
+      let take_arg_types n (vars:Ain.Variable.t list) =
+        let rec take_arg_types' n (vars:Ain.Variable.t list) result =
           if n = 0 then
             List.rev result
           else
@@ -571,7 +575,7 @@ class type_analyze_visitor ctx = object (self)
         take_arg_types' n vars []
       in
       (* full type comparison (including ref) *)
-      let arg_type_equal (a:Alice.Ain.Type.t) (b:Alice.Ain.Type.t) =
+      let arg_type_equal (a:Ain.Type.t) (b:Ain.Type.t) =
         (Bool.equal a.is_ref b.is_ref) && (type_equal a.data b.data)
       in
       let a_args = take_arg_types a.nr_args a.vars in
@@ -583,8 +587,8 @@ class type_analyze_visitor ctx = object (self)
     super#visit_fundecl f;
     begin match f.return.qualifier with
     | Some Override ->
-        let child = Alice.Ain.Function.create f.name |> jaf_to_ain_function f in
-        let parent = Alice.Ain.get_function_by_index ctx.ain (Option.value_exn f.super_index) in
+        let child = Ain.Function.create f.name |> jaf_to_ain_function f in
+        let parent = Ain.get_function_by_index ctx.ain (Option.value_exn f.super_index) in
         if not (fundecl_equal child parent) then
           compile_error "Override function has incorrect signature" (ASTDeclaration(Function f))
     | Some Const ->
@@ -594,7 +598,7 @@ class type_analyze_visitor ctx = object (self)
     if String.equal f.name "main" then
       begin match (f.return, f.params) with
       | ({data=Int; qualifier=(None|Some Override)}, []) ->
-          Alice.Ain.set_main_function ctx.ain (Option.value_exn f.index)
+          Ain.set_main_function ctx.ain (Option.value_exn f.index)
       | _ ->
           compile_error "Invalid declaration of 'main' function" (ASTDeclaration(Function f))
       end
@@ -603,7 +607,7 @@ class type_analyze_visitor ctx = object (self)
       | {data=Void; qualifier=(None|Some Override)} ->
           begin match List.map f.params ~f:(fun v -> v.type_spec) with
           | [{data=Int; qualifier=None}; {data=Int; qualifier=None}; {data=String; qualifier=None}] ->
-              Alice.Ain.set_message_function ctx.ain (Option.value_exn f.index)
+              Ain.set_message_function ctx.ain (Option.value_exn f.index)
           | _ ->
               compile_error "Invalid declaration of 'message' function" (ASTDeclaration(Function f))
           end

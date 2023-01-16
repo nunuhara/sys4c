@@ -1,3 +1,0 @@
-[submodule "src/libsys4"]
-	path = libsys4/libsys4
-	url = https://github.com/nunuhara/libsys4

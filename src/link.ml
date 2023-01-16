@@ -15,7 +15,7 @@
  *)
 
 open Core
-open Alice.Ain
+open Ain
 open CompileError
 
 type reloc_t = {
@@ -39,29 +39,29 @@ let check_hll_defs a b =
   if not (phys_equal (nr_libraries b) n) then
     link_error "HLL declaration mismatch: Library count not equal";
   let check_lib i =
-    if not (Library.equal (Library.of_int a i) (Library.of_int b i)) then
+    if not (Library.equal (get_library_by_index a i) (get_library_by_index b i)) then
       link_error "HLL declaration mismatch: Library not equal"
   in
   List.iter (List.init n ~f:(~+)) ~f:check_lib
 
-let link_global reloc ain (g:Variable.t) =
+let link_global reloc ain (g:Global.t) =
   let no =
-    match Alice.Ain.get_global ain g.name with
+    match get_global ain g.variable.name with
     | Some existing_g ->
         (* ensure definitions match *)
-        if not (Variable.equal g existing_g) then
-          link_error (Printf.sprintf "Global declaration mismatch: %s" g.name);
+        if not (Variable.equal g.variable existing_g) then
+          link_error (Printf.sprintf "Global declaration mismatch: %s" g.variable.name);
         existing_g.index
     | None ->
         (* add global to ain file *)
-        write_new_global ain g
+        write_new_global ain g.variable
   in
   (* add relocation to table *)
-  Hashtbl.add_exn reloc ~key:g.index ~data:no
+  Hashtbl.add_exn reloc ~key:g.variable.index ~data:no
 
 let link_function reloc ain (f:Function.t) =
   let no =
-    match Alice.Ain.get_function ain f.name with
+    match get_function ain f.name with
     | Some existing_f ->
         (* ensure definitions match *)
         if not (Function.equal f existing_f) then
@@ -71,16 +71,16 @@ let link_function reloc ain (f:Function.t) =
           if Function.is_defined existing_f then
             link_error (Printf.sprintf "Multiple definitions for function: %s" f.name);
           (* add local variables to existing declaration *)
-          existing_f.vars <- f.vars
+          write_function ain { existing_f with vars=f.vars }
         end;
         existing_f.index
     | None ->
         (* add function to ain file *)
         let no = write_new_function ain f in
         if String.equal f.name "main" then
-          Alice.Ain.set_main_function ain no
+          set_main_function ain no
         else if String.equal f.name "message" then
-          Alice.Ain.set_message_function ain no;
+          set_message_function ain no;
         no
   in
   (* add relocation to table *)
@@ -113,8 +113,8 @@ let rec link_type reloc ain (v:Type.t) =
       {v with data=(Unknown87 (link_type reloc ain t))}
   | Enum _ | Enum2 _ ->
       failwith "enum linking not implemented"
-  | Void | Int | Float | String | IMainSystem | Bool | LongInt | HLLParam
-  | IFace | HLLFunc | IFaceWrap | Function _ | Method _ ->
+  | Void | Int | Float | String | IMainSystem | Bool | LongInt | HLLFunc2 | HLLParam
+  | IFace _ | HLLFunc | Unknown98 | IFaceWrap _ | Function _ | Method _ ->
       v
 
 let link_variable_type reloc ain (v:Variable.t) =
@@ -122,7 +122,7 @@ let link_variable_type reloc ain (v:Variable.t) =
 
 let link_struct reloc ain (s:Struct.t) =
   let no =
-    match Alice.Ain.get_struct ain s.name with
+    match get_struct ain s.name with
     | Some existing_s ->
         (* ensure definitions match *)
         if not (Struct.equal s existing_s) then
@@ -137,23 +137,25 @@ let link_struct reloc ain (s:Struct.t) =
 
 let link_struct_types reloc ain (s:Struct.t) =
   let reloc_members = List.map s.members ~f:(link_variable_type reloc ain) in
-  Struct.write ain {s with members=reloc_members}
+  write_struct ain {s with members=reloc_members}
 
-let link_struct_ctor_dtor func_reloc (s:Struct.t) =
+let link_struct_ctor_dtor ain func_reloc (s:Struct.t) =
   if s.constructor >= 0 then
     begin match Hashtbl.find func_reloc s.constructor with
-    | Some i -> s.constructor <- i
+    | Some i ->
+        write_struct ain { s with constructor = i }
     | None -> linker_bug (Printf.sprintf "constructor declaration not found: %s" s.name)
     end;
   if s.destructor >= 0 then
     begin match Hashtbl.find func_reloc s.destructor with
-    | Some i -> s.destructor <- i
+    | Some i ->
+        write_struct ain { s with destructor = i }
     | None -> linker_bug (Printf.sprintf "destructor declaration not found: %s" s.name)
     end
 
 let link_functype reloc ain (f:FunctionType.t) =
   let no =
-    match Alice.Ain.get_functype ain f.name with
+    match get_functype ain f.name with
     | Some existing_f ->
         (* ensure definitions match *)
         if not (FunctionType.equal f existing_f) then
@@ -168,11 +170,11 @@ let link_functype reloc ain (f:FunctionType.t) =
 
 let link_functype_types reloc ain (f:FunctionType.t) =
   let reloc_vars = List.map f.variables ~f:(link_variable_type reloc ain) in
-  FunctionType.write ain {f with variables=reloc_vars}
+  write_functype ain {f with variables=reloc_vars}
 
 let link_delegate reloc ain (f:FunctionType.t) =
   let no =
-    match Alice.Ain.get_delegate ain f.name with
+    match get_delegate ain f.name with
     | Some existing_f ->
         (* ensure definitions match *)
         if not (FunctionType.equal f existing_f) then
@@ -187,14 +189,22 @@ let link_delegate reloc ain (f:FunctionType.t) =
 
 let link_delegate_types reloc ain (f:FunctionType.t) =
   let reloc_vars = List.map f.variables ~f:(link_variable_type reloc ain) in
-  FunctionType.write_delegate ain {f with variables=reloc_vars}
+  write_delegate ain {f with variables=reloc_vars}
+
+let foreach_instruction ain ~f =
+  let dasm = Dasm.create ain in
+  while not (Dasm.eof dasm) do
+    f dasm;
+    Dasm.next dasm
+  done
 
 let link_code reloc a b =
   let code_offset = code_size a in
-  let buffer = Alice.CBuffer.create 2048 in
+  let buffer = CBuffer.create 2048 in
   let instruction_iter dasm =
-    let map_argument t v =
-      match Bytecode.argtype_of_int t with
+    let map_argument (t:Bytecode.argtype) v32 =
+      let v = Int.of_int32_trunc v32 in
+      match t with
       | Address -> v + code_offset
       | String ->
           begin match get_string b v with
@@ -231,20 +241,19 @@ let link_code reloc a b =
       | Int | Float | Local | Syscall | Library | LibraryFunction -> v
     in
     (* map arguments from b-indices to a-indices via relocation tables *)
-    let opcode = DASM.opcode dasm in
-    let args = List.map2_exn (DASM.argument_types dasm) (DASM.arguments dasm) ~f:map_argument in
+    let opcode = Dasm.opcode dasm in
+    let args = List.map2_exn (Dasm.argument_types dasm) (Dasm.arguments dasm) ~f:map_argument in
     (* write remapped instruction to output buffer *)
-    Alice.CBuffer.write_int16 buffer opcode;
-    List.iter args ~f:(fun v -> Alice.CBuffer.write_int32 buffer v);
+    CBuffer.write_int16 buffer opcode;
+    List.iter args ~f:(fun v -> CBuffer.write_int32 buffer v);
     (* update function address when encountering FUNC instruction *)
     if phys_equal opcode 0x61 then begin
-      let f = Alice.Ain.get_function_by_index a (Option.value_exn (List.hd args)) in
-      f.address <- code_offset + (Alice.CBuffer.pos buffer);
-      Alice.Ain.Function.write a f
+      let f = get_function_by_index a (Option.value_exn (List.hd args)) in
+      write_function a { f with address = code_offset + buffer.pos }
     end
   in
-  Alice.Ain.foreach_instruction b ~f:instruction_iter;
-  Alice.Ain.append_bytecode a buffer
+  foreach_instruction b ~f:instruction_iter;
+  append_bytecode a buffer
 
 let link a b decl_only =
   check_hll_defs a b;
@@ -257,7 +266,7 @@ let link a b decl_only =
   let functype_start = nr_functypes a in
   let delegate_start = nr_delegates a in
   (* transfer type objects from b to a *)
-  Alice.Ain.struct_iter b ~f:(link_struct reloc.structs a);
+  struct_iter b ~f:(link_struct reloc.structs a);
   functype_iter b ~f:(link_functype reloc.functypes a);
   delegate_iter b ~f:(link_delegate reloc.delegates a);
   (* 2nd pass over type objects to update nested types *)
@@ -268,22 +277,22 @@ let link a b decl_only =
   global_iter b ~f:(link_global reloc.globals a);
   function_iter b ~f:(link_function reloc.functions a);
   (* 3rd pass to update constructor/destructor indices in struct objects *)
-  struct_iter a ~f:(link_struct_ctor_dtor reloc.functions) ~from:struct_start;
+  struct_iter a ~f:(link_struct_ctor_dtor a reloc.functions) ~from:struct_start;
   (* append code from b to a, updating indices per relocation tables *)
-  if (not decl_only) && (Alice.Ain.code_size b) > 0 then
+  if (not decl_only) && (code_size b) > 0 then
     link_code reloc a b
 
 let check_undefined ain =
   let check_function (f:Function.t) =
-    if not (Alice.Ain.Function.is_defined f) then
+    if not (Function.is_defined f) then
       link_error (Printf.sprintf "Undefined function: %s" f.name)
   in
   function_iter ain ~f:check_function ~from:1
 
 let declarations_match master ain =
-  let check_global (g:Variable.t) =
-    match get_global master g.name with
-    | Some master_g -> Variable.equal master_g g
+  let check_global (g:Global.t) =
+    match get_global master g.variable.name with
+    | Some master_g -> Variable.equal master_g g.variable
     | None -> false
   in
   let check_function (f:Function.t) =

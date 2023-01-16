@@ -8,40 +8,20 @@ somewhat more mature compiler in alice-tools (written in C).
 Building
 --------
 
-The following dependencies should be installed either via your system's
-package manager or manually:
-
-* make
-* meson
-* libpng
-* libturbojpeg
-* libwebp
-* zlib
-
-e.g. on debian,
-
-    # apt install make meson libpng-dev libturbojpeg0-dev libwebp-dev zlib1g-dev
-
 The following dependencies should be installed via opam:
 
 * ocaml
 * core
-* ctypes-foreign
+* core\_unix
+* camlzip
 * dune
 * menhir
 
-    $ opam install core ctypes-foreign dune menhir
+    $ opam install core core_unix camlzip dune menhir
 
-Then fetch the git submodules,
+Then build the compiler with dune,
 
-    git submodule init
-    git submodule update
-
-(Alternatively, pass `--recurse-submodules` when cloning this repository.)
-
-Then build the compiler with make,
-
-    make
+    dune build
 
 Installation
 ------------
@@ -57,7 +37,7 @@ Usage
 
 ### Batch Mode
 
-To compile one or more .jaf source files in batch mode, simply pass them to the
+To compile one or more .jaf source files in batch mode, pass them to the
 compiler on the command line. The `-o` option is used to specify the output
 .ain file name (defaults to `out.ain`).
 

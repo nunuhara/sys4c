@@ -113,7 +113,7 @@ type call_type =
   | DelegateCall of int
 
 type expression = {
-  mutable valuetype : Alice.Ain.Type.t option;
+  mutable valuetype : Ain.Type.t option;
   mutable node : ast_expression
 }
 and ast_expression =
@@ -208,15 +208,15 @@ type ast_node =
   | ASTDeclaration of declaration
 
 type context = {
-  ain : Alice.Ain.t;
-  import_ain : Alice.Ain.t;
+  ain : Ain.t;
+  import_ain : Ain.t;
   mutable const_vars : variable list
 }
 
 type resolved_name =
   | ResolvedLocal of variable
   | ResolvedConstant of variable
-  | ResolvedGlobal of Alice.Ain.Variable.t
+  | ResolvedGlobal of Ain.Variable.t
   | ResolvedFunction of int
   | ResolvedLibrary of int
   | ResolvedSystem
@@ -280,13 +280,13 @@ class ivisitor ctx = object (self)
 
     method resolve name =
       let ain_resolve ain =
-        match Alice.Ain.get_global ain name with
+        match Ain.get_global ain name with
         | Some g -> ResolvedGlobal g
         | None ->
-            begin match Alice.Ain.get_function ain name with
+            begin match Ain.get_function ain name with
             | Some f -> ResolvedFunction f.index
             | None ->
-                begin match Alice.Ain.get_library_index ain name with
+                begin match Ain.get_library_index ain name with
                 | Some i -> ResolvedLibrary i
                 | None -> UnresolvedName
                 end
@@ -295,8 +295,8 @@ class ivisitor ctx = object (self)
       match name with
       | "system" ->
           (* NOTE: on ain v11+, "system" is a library *)
-          if Alice.Ain.version_gte ctx.ain 11 0 then
-            begin match Alice.Ain.get_library_index ctx.ain "system" with
+          if Ain.version_gte ctx.ain (11, 0) then
+            begin match Ain.get_library_index ctx.ain "system" with
             | Some i -> ResolvedLibrary i
             | None -> UnresolvedName
             end
@@ -319,12 +319,12 @@ class ivisitor ctx = object (self)
                       (* Try to import declaration from import_ain *)
                       begin match ain_resolve ctx.import_ain with
                       | ResolvedGlobal g ->
-                          let no = Alice.Ain.write_new_global ctx.ain g in
-                          ResolvedGlobal (Alice.Ain.get_global_by_index ctx.ain no)
+                          let no = Ain.write_new_global ctx.ain g in
+                          ResolvedGlobal (Ain.get_global_by_index ctx.ain no)
                       | ResolvedFunction i ->
-                          let f = Alice.Ain.get_function_by_index ctx.import_ain i in
-                          Alice.Ain.Function.set_undefined f;
-                          ResolvedFunction (Alice.Ain.write_new_function ctx.ain f)
+                          let f = Ain.get_function_by_index ctx.import_ain i in
+                          let f = Ain.Function.set_undefined f in
+                          ResolvedFunction (Ain.write_new_function ctx.ain f)
                       | ResolvedLibrary _ ->
                           failwith "importing of libraries not implemented"
                       | ResolvedLocal _ | ResolvedConstant _ | ResolvedSystem ->
@@ -726,79 +726,87 @@ let rec jaf_to_ain_data_type data =
   match data with
   | Untyped -> failwith "tried to convert Untyped to ain data type"
   | Unresolved _ -> failwith "tried to convert Unresolved to ain data type"
-  | Void -> Alice.Ain.Type.Void
-  | Int -> Alice.Ain.Type.Int
-  | Bool -> Alice.Ain.Type.Bool
-  | Float -> Alice.Ain.Type.Float
-  | String -> Alice.Ain.Type.String
-  | Struct (_, i) -> Alice.Ain.Type.Struct i
-  | Array t -> Alice.Ain.Type.Array (jaf_to_ain_type t)
-  | Wrap t -> Alice.Ain.Type.Wrap (jaf_to_ain_type t)
-  | HLLParam -> Alice.Ain.Type.HLLParam
-  | HLLFunc -> Alice.Ain.Type.HLLFunc
-  | Delegate (_, i) -> Alice.Ain.Type.Delegate i
-  | FuncType (_, i) -> Alice.Ain.Type.FuncType i
-  | IMainSystem -> Alice.Ain.Type.IMainSystem
+  | Void -> Ain.Type.Void
+  | Int -> Ain.Type.Int
+  | Bool -> Ain.Type.Bool
+  | Float -> Ain.Type.Float
+  | String -> Ain.Type.String
+  | Struct (_, i) -> Ain.Type.Struct i
+  | Array t -> Ain.Type.Array (jaf_to_ain_type t)
+  | Wrap t -> Ain.Type.Wrap (jaf_to_ain_type t)
+  | HLLParam -> Ain.Type.HLLParam
+  | HLLFunc -> Ain.Type.HLLFunc
+  | Delegate (_, i) -> Ain.Type.Delegate i
+  | FuncType (_, i) -> Ain.Type.FuncType i
+  | IMainSystem -> Ain.Type.IMainSystem
 and jaf_to_ain_type spec =
   let is_ref =
     match spec.qualifier with
     | Some Ref -> true
     | _ -> false
   in
-  Alice.Ain.Type.make ~is_ref (jaf_to_ain_data_type spec.data)
+  Ain.Type.make ~is_ref (jaf_to_ain_data_type spec.data)
 
-let jaf_to_ain_parameters j_p =
-  let rec convert_params (params:variable list) (result:Alice.Ain.Variable.t list) =
+let jaf_to_ain_variables j_p =
+  let rec convert_params (params:variable list) (result:Ain.Variable.t list) index =
     match params with
     | [] -> List.rev result
     | x::xs ->
-        let var = Alice.Ain.Variable.make_local x.name (jaf_to_ain_type x.type_spec) in
+        let var = Ain.Variable.make ~index x.name (jaf_to_ain_type x.type_spec) in
         begin match x.type_spec with
         | { data=(Int|Bool|Float|FuncType(_,_)); qualifier=Some Ref } ->
-            let void = Alice.Ain.Variable.make_local "<void>" (Alice.Ain.Type.make Void) in
-            convert_params xs (void::var::result)
+            let void = Ain.Variable.make ~index:(index + 1) "<void>" (Ain.Type.make Void) in
+            convert_params xs (void::var::result) (index + 2)
         | _ ->
-            convert_params xs (var::result)
+            convert_params xs (var::result) (index + 1)
         end
   in
-  convert_params j_p []
+  convert_params j_p [] 0
 
-let jaf_to_ain_function j_f (a_f:Alice.Ain.Function.t) =
-  a_f.vars <- jaf_to_ain_parameters j_f.params;
-  a_f.nr_args <- List.length a_f.vars;
-  a_f.return_type <- jaf_to_ain_type j_f.return;
-  a_f
+let jaf_to_ain_function j_f (a_f:Ain.Function.t) =
+  let vars = jaf_to_ain_variables j_f.params in
+  { a_f with
+    vars;
+    nr_args = List.length vars;
+    return_type = jaf_to_ain_type j_f.return
+  }
 
-let jaf_to_ain_struct j_s (a_s:Alice.Ain.Struct.t) =
-  let filter_members = function
-    | MemberDecl (v) -> Some (Alice.Ain.Variable.make_member v.name (jaf_to_ain_type v.type_spec))
+let jaf_to_ain_struct j_s (a_s:Ain.Struct.t) =
+  let members = List.filter_map j_s.decls ~f:(function
+    | MemberDecl (v) -> Some v
     | _ -> None
+  ) |> jaf_to_ain_variables
   in
-  begin match List.find j_s.decls ~f:(function Constructor _ -> true | _ -> false) with
-  | Some (Constructor ctor) ->
-      a_s.constructor <- Option.value_exn ctor.index
-  | _ -> ()
-  end;
-  begin match List.find j_s.decls ~f:(function Destructor _ -> true | _ -> false) with
-  | Some (Destructor dtor) ->
-      a_s.destructor <- Option.value_exn dtor.index
-  | _ -> ()
-  end;
-  a_s.members <- List.filter_map j_s.decls ~f:filter_members;
-  (* TODO: interfaces *)
-  (* TODO: vmethods *)
-  a_s
+  let is_ctor = function Constructor _ -> true | _ -> false in
+  let constructor = match List.find j_s.decls ~f:is_ctor with
+  | Some (Constructor ctor) -> Option.value_exn ctor.index
+  | _ -> -1
+  in
+  let is_dtor = function Destructor _ -> true | _ -> false in
+  let destructor = match List.find j_s.decls ~f:is_dtor with
+  | Some (Destructor dtor) -> Option.value_exn dtor.index
+  | _ -> -1
+  in
+  { a_s with
+    members; 
+    constructor;
+    destructor
+    (* TODO: interfaces *)
+    (* TODO: vmethods *)
+  }
 
-let jaf_to_ain_functype j_f (a_f:Alice.Ain.FunctionType.t) =
-  a_f.variables <- jaf_to_ain_parameters j_f.params;
-  a_f.nr_arguments <- List.length a_f.variables;
-  a_f.return_type <- jaf_to_ain_type j_f.return;
-  a_f
+let jaf_to_ain_functype j_f (a_f:Ain.FunctionType.t) =
+  let variables = jaf_to_ain_variables j_f.params in
+  { a_f with
+    variables;
+    nr_arguments = List.length variables;
+    return_type = jaf_to_ain_type j_f.return
+  }
 
 let jaf_to_ain_hll_function j_f =
   let jaf_to_ain_hll_argument (param:variable) =
-    Alice.Ain.Library.HLLArgument.create param.name (jaf_to_ain_type param.type_spec)
+    Ain.Library.Argument.create param.name (jaf_to_ain_type param.type_spec)
   in
   let return_type = jaf_to_ain_type j_f.return in
   let arguments = List.map j_f.params ~f:jaf_to_ain_hll_argument in
-  Alice.Ain.Library.HLLFunction.create j_f.name return_type arguments
+  Ain.Library.Function.create j_f.name return_type arguments
